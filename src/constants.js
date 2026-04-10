@@ -61,6 +61,6 @@ export const SYNC_ICONS = { online: "🟢", syncing: "🟡", error: "🔴" };
 // ═══════════════════════════════════════════════
 //  SUPABASE CONFIG — замени своими значениями!
 // ═══════════════════════════════════════════════
-export const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-export const SUPABASE_KEY = "YOUR_ANON_KEY";
+export const SUPABASE_URL = "https://hfwjzcdiftywljshmtgo.supabase.co";
+export const SUPABASE_KEY = "sb_publishable_bsb0R3iK_GjLr_3NbT8ypg_oJ26Fml4";
 export const SUPABASE_ENABLED = SUPABASE_URL !== "https://YOUR_PROJECT.supabase.co";
