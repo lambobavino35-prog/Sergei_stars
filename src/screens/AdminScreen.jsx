@@ -28,7 +28,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ...s.sergei,
         coins:          s.sergei.coins + task.reward,
         totalEarned:    (s.sergei.totalEarned || 0) + task.reward,
-        completedTasks: [...s.sergei.completedTasks, { taskId: task.id, date: Date.now() }],
+        completedTasks: [...s.sergei.completedTasks, { id: crypto.randomUUID(), taskId: task.id, date: Date.now() }],
         log: [
           { id: crypto.randomUUID(), type: "earn", text: `✅ Задание «${task.title}» одобрено`, amount: task.reward, ts: Date.now() },
           ...s.sergei.log,
