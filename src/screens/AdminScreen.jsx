@@ -251,7 +251,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все награды ({st.rewards.length})</div>
             {st.rewards.map(r => {
-              const purchases = (st.sergei.purchasedRewards || []).filter(pr => pr.id === r.id);
+              const purchases = (st.sergei.purchasedRewards || []).filter(pr => pr.rewardId === r.id || pr.id === r.id);
               const bought = purchases.length > 0;
               return (
                 <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: bought ? "linear-gradient(90deg,#03180a00,#03180a44)" : "none" }}>

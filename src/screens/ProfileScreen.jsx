@@ -63,7 +63,7 @@ export default function ProfileScreen({ st, setSt, fireBurst }) {
       {toast && <Toast msg={toast.msg} type={toast.type} />}
 
       <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ display: "inline-block", marginBottom: 16 }}>
+        <div style={{ display: "inline-block", marginBottom: 16, padding: 40, margin: "-24px 0 -8px" }}>
           <Badge tier={st.sergei.badgeTier} size={100} onClick={handleBadgeClick} pulse ambient customTiers={customTiers} />
         </div>
         <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>
