@@ -37,22 +37,7 @@ export default function App() {
   const [tab, setTab] = useState("profile");
   const [toast, setToast] = useState(null);
   const [bursts, fireBurst] = useBurst();
-  const { syncStatus, ready } = useSupabaseSync(st, setSt);
-
-  // Пока идёт первый pull из Supabase — показываем заставку
-  // (предотвращает мигание "задания не выполнены" до получения данных)
-  if (!ready && SUPABASE_ENABLED) return (
-    <>
-      <style>{CSS}</style>
-      <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-        <div style={{ fontSize: 48, animation: "pulseBadge 1.2s ease infinite" }}>⚡</div>
-        <div style={{ fontFamily: "'Baloo 2',sans-serif", fontWeight: 900, fontSize: 18, color: "#f1f5f9" }}>
-          Синхронизация...
-        </div>
-        <div style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>Загружаем данные из облака</div>
-      </div>
-    </>
-  );
+  const syncStatus = useSupabaseSync(st, setSt);
 
   // Загружаем model-viewer для 3D значков
   useEffect(() => {

@@ -90,13 +90,26 @@ export default function AdminScreen({ st, setSt, showToast }) {
     try {
       const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
       if (SUPABASE_ENABLED) {
-        await fetch(`${SUPABASE_URL}/rest/v1/sq_tasks?id=eq.${id}`, {
-          method: "DELETE",
-          headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
-        });
+        await Promise.all([
+          fetch(`${SUPABASE_URL}/rest/v1/sq_tasks?id=eq.${id}`, {
+            method: "DELETE",
+            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+          }),
+          fetch(`${SUPABASE_URL}/rest/v1/sq_completed_tasks?task_id=eq.${id}`, {
+            method: "DELETE",
+            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+          }),
+        ]);
       }
     } catch {}
-    setSt(s => ({ ...s, tasks: s.tasks.filter(x => x.id !== id) }));
+    setSt(s => ({
+      ...s,
+      tasks: s.tasks.filter(x => x.id !== id),
+      sergei: {
+        ...s.sergei,
+        completedTasks: s.sergei.completedTasks.filter(c => c.taskId !== id),
+      },
+    }));
   };
 
   const addManual = () => {

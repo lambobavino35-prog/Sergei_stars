@@ -84,7 +84,6 @@ async function sbDelete(table, filter) {
 
 export function useSupabaseSync(st, setSt) {
   const [syncStatus, setSyncStatus] = useState("online");
-  const [ready, setReady] = useState(!SUPABASE_ENABLED); // если Supabase выключен — сразу ready
   const stRef = useRef(st);
   const initialized = useRef(false);
   const pulling = useRef(false);
@@ -143,21 +142,11 @@ export function useSupabaseSync(st, setSt) {
               amount: l.amount,
               ts:     new Date(l.ts).getTime(),
             })),
-            completedTasks:   (() => {
-              // Map Supabase rows → local format, preserving the row id
-              const fromDB = completedTasks.map(c => ({
-                id:     c.id,
-                taskId: c.task_id,
-                date:   new Date(c.completed_at).getTime(),
-              }));
-              // Safety merge: keep any LOCAL entries not yet confirmed in DB
-              // (covers the case where push failed / Supabase hasn't received them yet)
-              const dbKeys = new Set(fromDB.map(c => `${c.taskId}_${Math.floor(c.date / 1000)}`));
-              const onlyLocal = (local.sergei?.completedTasks || []).filter(
-                c => !dbKeys.has(`${c.taskId}_${Math.floor(c.date / 1000)}`)
-              );
-              return [...fromDB, ...onlyLocal];
-            })(),
+            completedTasks:   completedTasks.map(c => ({
+              id:     c.id,
+              taskId: c.task_id,
+              date:   new Date(c.completed_at).getTime(),
+            })),
             purchasedRewards: purchasedRewards.map(r => ({
               id:       r.id,
               rewardId: r.reward_id,
@@ -285,6 +274,13 @@ export function useSupabaseSync(st, setSt) {
             ts:     new Date(l.ts).toISOString(),
           }))
         ),
+        // Удаляем из sq_log записи старше тех, что уже не входят в срез 100
+        s.sergei.log.length > 0 && (async () => {
+          const oldest = s.sergei.log[s.sergei.log.length - 1];
+          if (oldest) {
+            await sbDelete("sq_log", `ts=lt.${encodeURIComponent(new Date(oldest.ts).toISOString())}&id=neq.${oldest.id}`);
+          }
+        })(),
         // Кастомные тиры
         (s.customTiers || []).length > 0 && sbUpsert("sq_custom_tiers",
           s.customTiers.map(ct => ({
@@ -307,10 +303,10 @@ export function useSupabaseSync(st, setSt) {
             bought_at: new Date(r.boughtAt || Date.now()).toISOString(),
           }))
         ),
-        // Выполненные задания — используем UUID если есть, иначе стабильный fallback
+        // Выполненные задания
         (s.sergei.completedTasks || []).length > 0 && sbUpsert("sq_completed_tasks",
-          s.sergei.completedTasks.map(c => ({
-            id:           c.id || `${c.taskId}_${c.date}`,
+          s.sergei.completedTasks.map((c, i) => ({
+            id:           c.id || `${c.taskId}_${c.date || i}`,
             task_id:      c.taskId,
             completed_at: new Date(c.date || Date.now()).toISOString(),
           }))
@@ -326,7 +322,7 @@ export function useSupabaseSync(st, setSt) {
 
   // Начальный pull
   useEffect(() => {
-    pull().finally(() => { initialized.current = true; setReady(true); });
+    pull().finally(() => { initialized.current = true; });
   }, []);
 
   // Pull каждые 8 секунд
@@ -342,11 +338,13 @@ export function useSupabaseSync(st, setSt) {
     if (!initialized.current) return;
     if (skipPush.current) { skipPush.current = false; return; }
     clearTimeout(pushTimer.current);
-    pushTimer.current = setTimeout(push, 400);
+    // Ждём завершения pull перед push — если pull ещё идёт, откладываем дольше
+    const delay = pulling.current ? 1200 : 400;
+    pushTimer.current = setTimeout(push, delay);
     return () => clearTimeout(pushTimer.current);
   }, [st, push]);
 
-  return { syncStatus, ready };
+  return syncStatus;
 }
 
 // ══════════════════════════════════════════════════════════════

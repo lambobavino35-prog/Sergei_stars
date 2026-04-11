@@ -13,7 +13,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
 
   const buyReward = (reward, e) => {
     if (coins < reward.cost) return showToast("Недостаточно монет 😔", "err");
-    if (reward.oneTime && purchasedRewards.some(p => p.id === reward.id)) {
+    if (reward.oneTime && purchasedRewards.some(p => p.rewardId === reward.id || p.id === reward.id)) {
       return showToast("Эта награда уже куплена 🔒", "info");
     }
     setSt(s => ({
@@ -21,7 +21,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
       sergei: {
         ...s.sergei,
         coins: s.sergei.coins - reward.cost,
-        purchasedRewards: [...s.sergei.purchasedRewards, { ...reward, boughtAt: Date.now() }],
+        purchasedRewards: [...s.sergei.purchasedRewards, { id: crypto.randomUUID(), rewardId: reward.id, title: reward.title, emoji: reward.emoji, boughtAt: Date.now() }],
         log: [{ id: crypto.randomUUID(), type: "buy", text: `🎁 Куплена награда «${reward.title}»`, amount: -reward.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
       }
     }));
@@ -242,7 +242,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
             <div style={{ textAlign: "center", padding: 40, color: "#334155" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📭</div><div style={{ fontWeight: 700 }}>Нет наград</div></div>
           )}
           {st.rewards.map(r => {
-            const alreadyBought = r.oneTime && purchasedRewards.some(p => p.id === r.id);
+            const alreadyBought = r.oneTime && purchasedRewards.some(p => p.rewardId === r.id || p.id === r.id);
             return (
               <div key={r.id} style={{ background: alreadyBought ? "linear-gradient(135deg,#0a0a0a,#111)" : "linear-gradient(135deg,#0f172a,#020617)", border: alreadyBought ? "1px solid #1e3a5f33" : "1px solid #1e3a5f", borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both", opacity: alreadyBought ? 0.6 : 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
