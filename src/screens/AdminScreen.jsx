@@ -237,21 +237,29 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <button onClick={addReward} style={{ width: "100%", padding: 14, background: "#fbbf24", color: "#020617", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer", marginTop: 4 }}>Добавить награду</button>
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все награды ({st.rewards.length})</div>
-            {st.rewards.map(r => (
-              <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a" }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 20 }}>{r.emoji}</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f5f9" }}>{r.title}</div>
-                    <div style={{ fontSize: 11, color: "#475569" }}>{r.category} • {r.oneTime ? "1️⃣ Одноразово" : "♾️ Повторно"}</div>
+            {st.rewards.map(r => {
+              const purchases = (st.sergei.purchasedRewards || []).filter(pr => pr.id === r.id);
+              const bought = purchases.length > 0;
+              return (
+                <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: bought ? "linear-gradient(90deg,#03180a00,#03180a44)" : "none" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 20 }}>{r.emoji}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: bought ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
+                        {r.title}
+                        {bought && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>🎁 {purchases.length > 1 ? `×${purchases.length}` : "Куплено"}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#475569" }}>{r.category} • {r.oneTime ? "1️⃣ Одноразово" : "♾️ Повторно"}</div>
+                      {bought && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последняя: {new Date(purchases[purchases.length - 1]?.boughtAt || 0).toLocaleDateString("ru-RU")}</div>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {r.cost}</span>
+                    <button onClick={() => deleteReward(r.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {r.cost}</span>
-                  <button onClick={() => deleteReward(r.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -273,21 +281,29 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <button onClick={addTaskFn} style={{ width: "100%", padding: 14, background: "#38bdf8", color: "#020617", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}>Добавить задание</button>
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все задания ({st.tasks.length})</div>
-            {st.tasks.map(t => (
-              <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a" }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, flex: 1 }}>
-                  <span style={{ fontSize: 18, flexShrink: 0 }}>{t.emoji}</span>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f5f9" }}>{t.title}</div>
-                    {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
+            {st.tasks.map(t => {
+              const completions = (st.sergei.completedTasks || []).filter(ct => ct.taskId === t.id);
+              const done = completions.length > 0;
+              return (
+                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: done ? "linear-gradient(90deg,#03180a00,#03180a66)" : "none" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{t.emoji}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: done ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
+                        {t.title}
+                        {done && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>✅ {t.repeatable && completions.length > 1 ? `×${completions.length}` : "Выполнено"}</span>}
+                      </div>
+                      {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
+                      {done && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(completions[completions.length - 1]?.date || 0).toLocaleDateString("ru-RU")}</div>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                    <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {t.reward}</span>
+                    <button onClick={() => deleteTask(t.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                  <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {t.reward}</span>
-                  <button onClick={() => deleteTask(t.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

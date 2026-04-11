@@ -64,7 +64,7 @@ export default function ProfileScreen({ st, setSt, fireBurst }) {
 
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ display: "inline-block", marginBottom: 16 }}>
-          <Badge tier={st.sergei.badgeTier} size={100} onClick={handleBadgeClick} pulse customTiers={customTiers} />
+          <Badge tier={st.sergei.badgeTier} size={100} onClick={handleBadgeClick} pulse ambient customTiers={customTiers} />
         </div>
         <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>
           {tier.label || "Кастомный"} • {tier.name}

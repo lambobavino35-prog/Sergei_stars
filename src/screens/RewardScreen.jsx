@@ -4,6 +4,7 @@ import Badge from "../components/Badge";
 
 export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const [tab, setTab] = useState("shop");
+  const [previewTier, setPreviewTier] = useState(null);
   const coins = st.sergei.coins;
   const purchasedTiers = st.sergei.purchasedTiers || [0];
   const purchasedRewards = st.sergei.purchasedRewards || [];
@@ -94,6 +95,95 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
 
   return (
     <div style={{ padding: "20px 16px", paddingBottom: 100 }}>
+
+      {/* ─── 3D PREVIEW MODAL ─── */}
+      {previewTier && (
+        <div
+          onClick={() => setPreviewTier(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.88)",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "linear-gradient(135deg,#0f172a,#020617)",
+            border: "1px solid #7c3aed55",
+            borderRadius: 28,
+            padding: "28px 24px 20px",
+            width: "min(340px, 90vw)",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+            boxShadow: "0 0 60px #7c3aed33",
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: ".08em" }}>
+              👁 Превью тира
+            </div>
+            <div style={{ fontFamily: "'Baloo 2',sans-serif", fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>
+              {previewTier.name}
+            </div>
+
+            {previewTier.modelUrl ? (
+              <div style={{
+                width: 220, height: 220,
+                borderRadius: 24,
+                overflow: "hidden",
+                border: "2px solid #7c3aed44",
+                background: "linear-gradient(135deg,#1a0a2e,#0a0520)",
+                boxShadow: "0 0 40px #7c3aed44",
+              }}>
+                <model-viewer
+                  src={previewTier.modelUrl}
+                  auto-rotate
+                  auto-rotate-delay="0"
+                  rotation-per-second="30deg"
+                  camera-controls
+                  style={{ width: "100%", height: "100%", background: "transparent" }}
+                />
+              </div>
+            ) : (
+              <div style={{
+                width: 160, height: 160, borderRadius: "50%",
+                background: previewTier.bg || "linear-gradient(135deg,#1a0a2e,#2d1060)",
+                border: previewTier.border || "2px solid #a855f7",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 72,
+                boxShadow: previewTier.glow || "0 0 40px #a855f755",
+              }}>
+                {previewTier.emoji}
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, textAlign: "center" }}>
+              {previewTier.modelUrl
+                ? "Потяни для вращения 🔄"
+                : "Эмодзи-тир без 3D-модели"}
+            </div>
+
+            {previewTier.particles && (
+              <div style={{ fontSize: 18 }}>{previewTier.particles.join(" ")}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <button
+                onClick={() => setPreviewTier(null)}
+                style={{ flex: 1, padding: "12px 0", background: "#1e3a5f", color: "#94a3b8", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
+              >
+                Закрыть
+              </button>
+              {!purchasedTiers.includes(previewTier.id) && (
+                <button
+                  onClick={e => { setPreviewTier(null); buyTier(previewTier, true, e); }}
+                  style={{ flex: 1, padding: "12px 0", background: "#a855f7", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
+                >
+                  💰 {previewTier.cost}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontFamily: "'Baloo 2',sans-serif", fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>🎁 Награды</div>
         <div style={{ background: "#1c1407", border: "1px solid #78350f", borderRadius: 12, padding: "6px 12px", fontWeight: 900, color: "#fbbf24", fontSize: 14 }}>💰 {coins}</div>
@@ -282,6 +372,12 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
                         <div style={{ fontWeight: 900, fontSize: 16, color: "#f1f5f9" }}>{tier.name}</div>
                         <div style={{ fontSize: 11, color: "#7c3aed", fontWeight: 700, marginBottom: 2 }}>3D-тир</div>
                         {tier.modelUrl && <div style={{ fontSize: 10, color: "#334155", fontWeight: 700 }}>🎲 3D-модель загружена</div>}
+                        <button
+                          onClick={() => setPreviewTier(tier)}
+                          style={{ marginTop: 6, padding: "4px 12px", background: "#1e3a5f", color: "#38bdf8", border: "1px solid #1e3a5f", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}
+                        >
+                          👁 Превью
+                        </button>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                         {owned ? (
