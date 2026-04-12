@@ -89,12 +89,9 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
       onClick={handleClick}
       style={{
         width: size, height: size,
-        background: modelUrl ? "transparent" : t.bg,
-        border: modelUrl ? "none" : t.border,
-        borderRadius: "50%",
+        background: t.bg, border: t.border, borderRadius: "50%",
         display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: modelUrl ? "none" : t.glow,
-        cursor: onClick ? "pointer" : "default",
+        boxShadow: t.glow, cursor: onClick ? "pointer" : "default",
         animation: pulse ? "pulseBadge 2s ease infinite" : "none",
         transition: "transform .2s",
         position: "relative",
