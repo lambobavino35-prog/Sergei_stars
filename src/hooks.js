@@ -295,18 +295,20 @@ export function useSupabaseSync(st, setSt) {
         ),
         // Купленные награды
         (s.sergei.purchasedRewards || []).length > 0 && sbUpsert("sq_purchased_rewards",
-          s.sergei.purchasedRewards.map(r => ({
-            id:        r.id,
-            reward_id: r.rewardId || r.id,
-            title:     r.title,
-            emoji:     r.emoji || "🎁",
-            bought_at: new Date(r.boughtAt || Date.now()).toISOString(),
-          }))
+          s.sergei.purchasedRewards
+            .filter(r => r.id && r.rewardId)   // skip malformed entries without proper IDs
+            .map(r => ({
+              id:        r.id,
+              reward_id: r.rewardId,
+              title:     r.title,
+              emoji:     r.emoji || "🎁",
+              bought_at: new Date(r.boughtAt || Date.now()).toISOString(),
+            }))
         ),
         // Выполненные задания
         (s.sergei.completedTasks || []).length > 0 && sbUpsert("sq_completed_tasks",
-          s.sergei.completedTasks.map((c, i) => ({
-            id:           c.id || `${c.taskId}_${c.date || i}`,
+          s.sergei.completedTasks.map((c) => ({
+            id:           c.id,   // always a proper UUID — set in approve()
             task_id:      c.taskId,
             completed_at: new Date(c.date || Date.now()).toISOString(),
           }))

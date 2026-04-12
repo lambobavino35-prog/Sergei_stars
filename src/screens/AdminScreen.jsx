@@ -10,6 +10,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [manualChocolates, setManualChocolates] = useState("");
   const [manualStars, setManualStars] = useState("");
   const [newTier, setNewTier] = useState({ name: "", cost: "", emoji: "🔮", modelUrl: "", particles: "✨,💫,🌟" });
+  const [previewTier, setPreviewTier] = useState(null);
 
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");
   const getTaskById = id => st.tasks.find(t => t.id === id);
@@ -180,6 +181,80 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   return (
     <div style={{ padding: "20px 16px", paddingBottom: 100 }}>
+
+      {/* ─── 3D PREVIEW MODAL ─── */}
+      {previewTier && (
+        <div
+          onClick={() => setPreviewTier(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.90)",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "linear-gradient(135deg,#0f172a,#020617)",
+            border: "1px solid #7c3aed55",
+            borderRadius: 28,
+            padding: "28px 24px 20px",
+            width: "min(340px, 90vw)",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+            boxShadow: "0 0 60px #7c3aed33",
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: ".08em" }}>
+              👁 Превью тира
+            </div>
+            <div style={{ fontFamily: "'Baloo 2',sans-serif", fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>
+              {previewTier.name}
+            </div>
+            {previewTier.modelUrl ? (
+              <div style={{
+                width: 220, height: 220,
+                borderRadius: 24,
+                overflow: "hidden",
+                border: "2px solid #7c3aed44",
+                background: "linear-gradient(135deg,#1a0a2e,#0a0520)",
+                boxShadow: "0 0 40px #7c3aed44",
+              }}>
+                <model-viewer
+                  src={previewTier.modelUrl}
+                  auto-rotate
+                  auto-rotate-delay="0"
+                  rotation-per-second="30deg"
+                  camera-controls
+                  style={{ width: "100%", height: "100%", background: "transparent" }}
+                />
+              </div>
+            ) : (
+              <div style={{
+                width: 140, height: 140, borderRadius: "50%",
+                background: previewTier.bg || "linear-gradient(135deg,#1a0a2e,#2d1060)",
+                border: previewTier.border || "2px solid #a855f7",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 64,
+                boxShadow: previewTier.glow || "0 0 40px #a855f755",
+              }}>
+                {previewTier.emoji}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, textAlign: "center" }}>
+              {previewTier.modelUrl ? "Потяни для вращения 🔄" : "Эмодзи-тир"}
+            </div>
+            {previewTier.particles && (
+              <div style={{ fontSize: 20 }}>{previewTier.particles.join("  ")}</div>
+            )}
+            <button
+              onClick={() => setPreviewTier(null)}
+              style={{ width: "100%", padding: "12px 0", background: "#1e3a5f", color: "#94a3b8", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontFamily: "'Baloo 2',sans-serif", fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>🔐 Админ</div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -344,11 +419,14 @@ export default function AdminScreen({ st, setSt, showToast }) {
               <div style={{ color: "#334155", fontWeight: 700, fontSize: 13, textAlign: "center", padding: 16 }}>Нет кастомных тиров</div>
             ) : customTiers.map(tier => (
               <div key={tier.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #0f172a" }}>
-                <Badge tier={tier.id} size={44} customTiers={customTiers} />
+                <div style={{ padding: 6, flexShrink: 0 }}>
+                  <Badge tier={tier.id} size={44} customTiers={customTiers} />
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f5f9" }}>{tier.name}</div>
                   <div style={{ fontSize: 11, color: "#475569" }}>{tier.modelUrl ? "🎲 3D-модель" : `${tier.emoji} Эмодзи`} • 💰 {tier.cost}</div>
                 </div>
+                <button onClick={() => setPreviewTier(tier)} style={{ padding: "4px 10px", background: "#0c1e3a", color: "#38bdf8", border: "1px solid #1e3a5f", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>👁</button>
                 <button onClick={() => deleteCustomTier(tier.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
               </div>
             ))}

@@ -6,9 +6,9 @@ const uid = () => ++_pid;
 
 const FLYOUT_CSS = `
 @keyframes badgeFlyOut {
-  0%   { transform: translate(-50%,-50%) scale(0.5) rotate(0deg); opacity: 1; }
-  60%  { opacity: 0.9; }
-  100% { transform: translate(calc(-50% + var(--bdx)), calc(-50% + var(--bdy))) scale(var(--bs,0.3)) rotate(var(--bdr,180deg)); opacity: 0; }
+  0%   { transform: translate(-50%,-50%) scale(0.6) rotate(0deg); opacity: 1; }
+  70%  { opacity: 0.8; }
+  100% { transform: translate(calc(-50% + var(--bdx)), calc(-50% + var(--bdy))) scale(var(--bs,0.2)) rotate(var(--bdr,270deg)); opacity: 0; }
 }
 @keyframes rotateSpin { to { transform: rotate(360deg); } }
 @keyframes pulseBadge { 0%,100%{transform:scale(1)}50%{transform:scale(1.07)} }
@@ -41,17 +41,17 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
   const spawnParticle = useCallback((burst) => {
     const id = uid();
     const angle = Math.random() * 360;
-    // Ambient: fly far out beyond the badge boundaries (like photo)
+    // Ambient: particles fly far beyond the badge boundaries — like the starfield in the photo
     const dist = burst
-      ? (size * 1.2 + Math.random() * size * 1.4)
-      : (size * 0.7 + Math.random() * size * 1.1);
+      ? (size * 1.4 + Math.random() * size * 1.6)
+      : (size * 0.8 + Math.random() * size * 1.2);
     const emoji = tierParticles[Math.floor(Math.random() * tierParticles.length)];
-    const duration = burst ? (0.45 + Math.random() * 0.3) : (1.4 + Math.random() * 1.1);
-    const scale = burst ? (0.8 + Math.random() * 1.2) : (0.25 + Math.random() * 0.55);
+    const duration = burst ? (0.4 + Math.random() * 0.25) : (1.5 + Math.random() * 1.2);
+    const scale = burst ? (0.9 + Math.random() * 1.3) : (0.2 + Math.random() * 0.5);
     const rad = (angle * Math.PI) / 180;
     const dx = Math.cos(rad) * dist;
     const dy = Math.sin(rad) * dist;
-    const rotation = (Math.random() - 0.5) * 360;
+    const rotation = (Math.random() - 0.5) * 540;
 
     setParticles(prev => [...prev, { id, dx, dy, emoji, duration, scale, rotation }]);
     setTimeout(() => setParticles(prev => prev.filter(p => p.id !== id)), duration * 1000);
@@ -60,31 +60,31 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
 
   useEffect(() => {
     if (!ambient) return;
-    // More frequent spawning for starfield effect, with varied timing
-    const iv = setInterval(() => spawnParticle(false), 220);
+    // Spawn every 200ms — dense starfield effect matching the photo
+    const iv = setInterval(() => spawnParticle(false), 200);
     return () => clearInterval(iv);
   }, [ambient, spawnParticle]);
 
   const handleClick = (e) => {
     if (ambient) {
-      // Big burst on click — more particles, faster
-      for (let i = 0; i < 22; i++) setTimeout(() => spawnParticle(true), i * 18);
+      // Explosion on click — 24 particles, rapid fire
+      for (let i = 0; i < 24; i++) setTimeout(() => spawnParticle(true), i * 15);
     }
     if (modelUrl && modelRef.current) {
-      modelRef.current.setAttribute("rotation-per-second", "240deg");
+      // 3D model spins fast on click, then returns to normal
+      modelRef.current.setAttribute("rotation-per-second", "250deg");
       clearTimeout(spinTimerRef.current);
       spinTimerRef.current = setTimeout(() => {
         if (modelRef.current) modelRef.current.setAttribute("rotation-per-second", "30deg");
-      }, 1400);
+      }, 1500);
     }
     if (onClick) onClick(e);
   };
 
   const fontSize = t.style?.fontSize ?? Math.round(size * 0.5);
-  // For 3D models: no clip, overflow visible so model can breathe
-  const is3D = !!modelUrl;
 
   return (
+    // overflow: visible so particles escape the circle and 3D model isn't clipped
     <div
       onClick={handleClick}
       style={{
@@ -95,8 +95,7 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
         animation: pulse ? "pulseBadge 2s ease infinite" : "none",
         transition: "transform .2s",
         position: "relative",
-        // Allow particles and 3D model to overflow the circle
-        overflow: "visible",
+        overflow: "visible",      // ← KEY: no clipping of particles or 3D model
       }}
     >
       <style>{FLYOUT_CSS}</style>
@@ -107,7 +106,7 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
           style={{
             position: "absolute",
             left: "50%", top: "50%",
-            fontSize: Math.max(10, Math.round(size * 0.2 * p.scale)),
+            fontSize: Math.max(10, Math.round(size * 0.22 * p.scale)),
             lineHeight: 1,
             pointerEvents: "none",
             userSelect: "none",
@@ -133,11 +132,11 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
       )}
 
       {modelUrl ? (
-        // 3D model: bigger, not clipped by the circle
+        // 3D model: positioned absolutely, 180% of badge size — NOT clipped by circle
         <div style={{
           position: "absolute",
-          width: "170%",
-          height: "170%",
+          width: "180%",
+          height: "180%",
           pointerEvents: "none",
           zIndex: 1,
         }}>
