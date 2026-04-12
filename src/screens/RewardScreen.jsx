@@ -238,34 +238,34 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
               </div>
             </div>
           )}
-          {st.rewards.length === 0 && (
-            <div style={{ textAlign: "center", padding: 40, color: "#334155" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📭</div><div style={{ fontWeight: 700 }}>Нет наград</div></div>
-          )}
-          {st.rewards.map(r => {
-            const alreadyBought = r.oneTime && purchasedRewards.some(p => p.rewardId === r.id || p.id === r.id);
-            return (
-              <div key={r.id} style={{ background: alreadyBought ? "linear-gradient(135deg,#0a0a0a,#111)" : "linear-gradient(135deg,#0f172a,#020617)", border: alreadyBought ? "1px solid #1e3a5f33" : "1px solid #1e3a5f", borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both", opacity: alreadyBought ? 0.6 : 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 32 }}>{r.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: "#f1f5f9" }}>{r.title}</div>
-                    <div style={{ fontSize: 11, color: "#475569", fontWeight: 700 }}>
-                      {r.category}
-                      {r.oneTime && <span style={{ marginLeft: 6, color: "#f59e0b" }}>• 1×</span>}
+          {(() => {
+            const shopRewards = st.rewards.filter(r => {
+              if (!r.oneTime) return true; // Неограниченные всегда в магазине
+              return !purchasedRewards.some(p => p.rewardId === r.id || p.id === r.id); // Одноразовые — только если не куплены
+            });
+            return shopRewards.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#334155" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📭</div><div style={{ fontWeight: 700 }}>Нет доступных наград</div><div style={{ fontSize: 12, marginTop: 4, color: "#475569" }}>Все награды уже куплены 🎉</div></div>
+            ) : (
+              shopRewards.map(r => (
+                <div key={r.id} style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 32 }}>{r.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: "#f1f5f9" }}>{r.title}</div>
+                      <div style={{ fontSize: 11, color: "#475569", fontWeight: 700 }}>
+                        {r.category}
+                        {r.oneTime && <span style={{ marginLeft: 6, color: "#f59e0b" }}>• 1×</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                      <span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 16 }}>💰 {r.cost}</span>
+                      <button onClick={e => buyReward(r, e)} style={{ padding: "7px 14px", background: coins >= r.cost ? "#fbbf24" : "#1e2a4a", color: coins >= r.cost ? "#020617" : "#334155", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Купить</button>
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                    <span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 16 }}>💰 {r.cost}</span>
-                    {alreadyBought ? (
-                      <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 12 }}>✅ Куплено</span>
-                    ) : (
-                      <button onClick={e => buyReward(r, e)} style={{ padding: "7px 14px", background: coins >= r.cost ? "#fbbf24" : "#1e2a4a", color: coins >= r.cost ? "#020617" : "#334155", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Купить</button>
-                    )}
-                  </div>
                 </div>
-              </div>
+              ))
             );
-          })}
+          })()}
         </>
       )}
 

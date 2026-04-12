@@ -325,29 +325,49 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <button onClick={addReward} style={{ width: "100%", padding: 14, background: "#fbbf24", color: "#020617", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer", marginTop: 4 }}>Добавить награду</button>
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все награды ({st.rewards.length})</div>
-            {st.rewards.map(r => {
-              const purchases = (st.sergei.purchasedRewards || []).filter(pr => pr.rewardId === r.id || pr.id === r.id);
-              const bought = purchases.length > 0;
-              return (
-                <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: bought ? "linear-gradient(90deg,#03180a00,#03180a44)" : "none" }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 20 }}>{r.emoji}</span>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: bought ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
-                        {r.title}
-                        {bought && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>🎁 {purchases.length > 1 ? `×${purchases.length}` : "Куплено"}</span>}
+            {(() => {
+              const purchasedRewards = st.sergei.purchasedRewards || [];
+              const notBought = st.rewards.filter(r => !r.oneTime || !purchasedRewards.some(pr => pr.rewardId === r.id || pr.id === r.id));
+              const bought = st.rewards.filter(r => r.oneTime && purchasedRewards.some(pr => pr.rewardId === r.id || pr.id === r.id));
+              const renderReward = r => {
+                const purchases = purchasedRewards.filter(pr => pr.rewardId === r.id || pr.id === r.id);
+                const isBought = purchases.length > 0;
+                return (
+                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: isBought ? "linear-gradient(90deg,#03180a00,#03180a44)" : "none" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 20 }}>{r.emoji}</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: isBought ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
+                          {r.title}
+                          {isBought && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>🎁 {purchases.length > 1 ? `×${purchases.length}` : "Куплено"}</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#475569" }}>{r.category} • {r.oneTime ? "1️⃣ Одноразово" : "♾️ Повторно"}</div>
+                        {isBought && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последняя: {new Date(purchases[purchases.length - 1]?.boughtAt || 0).toLocaleDateString("ru-RU")}</div>}
                       </div>
-                      <div style={{ fontSize: 11, color: "#475569" }}>{r.category} • {r.oneTime ? "1️⃣ Одноразово" : "♾️ Повторно"}</div>
-                      {bought && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последняя: {new Date(purchases[purchases.length - 1]?.boughtAt || 0).toLocaleDateString("ru-RU")}</div>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {r.cost}</span>
+                      <button onClick={() => deleteReward(r.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {r.cost}</span>
-                    <button onClick={() => deleteReward(r.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
-                  </div>
-                </div>
+                );
+              };
+              return (
+                <>
+                  {notBought.map(renderReward)}
+                  {bought.length > 0 && (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "14px 0 6px" }}>
+                        <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg,#134e2a,#052e16)" }} />
+                        <span style={{ fontSize: 10, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>🎁 Куплено ({bought.length})</span>
+                        <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg,#052e16,#134e2a)" }} />
+                      </div>
+                      {bought.map(renderReward)}
+                    </>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
         </div>
       )}
