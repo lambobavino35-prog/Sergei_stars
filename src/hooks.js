@@ -351,7 +351,7 @@ export function useSupabaseSync(st, setSt) {
 
 // ══════════════════════════════════════════════════════════════
 //  Вспомогательный хук: удаление pending task из Supabase
-//  (approve / reject / cancel — запись нужно физически удалить)
+//  (reject / cancel — запись нужно физически удалить)
 // ══════════════════════════════════════════════════════════════
 export async function deletePending(id) {
   if (!SUPABASE_ENABLED) return;
@@ -359,6 +359,33 @@ export async function deletePending(id) {
     await sbDelete("sq_pending", `id=eq.${id}`);
   } catch (e) {
     console.error("deletePending error:", e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  approveTask — атомарная операция одобрения:
+//  1. СНАЧАЛА пишем completed task в sq_completed_tasks
+//  2. ПОТОМ удаляем из sq_pending
+//
+//  Это исключает race condition: если другое устройство делает
+//  pull между удалением pending и записью completed — задание
+//  больше не появится как "доступное для выполнения".
+// ══════════════════════════════════════════════════════════════
+export async function approveTask(pendingId, completedTask) {
+  if (!SUPABASE_ENABLED) {
+    return;
+  }
+  try {
+    // Шаг 1: записываем completed task — теперь он виден всем устройствам
+    await sbUpsert("sq_completed_tasks", [{
+      id:           completedTask.id,
+      task_id:      completedTask.taskId,
+      completed_at: new Date(completedTask.date).toISOString(),
+    }]);
+    // Шаг 2: только после этого удаляем pending
+    await sbDelete("sq_pending", `id=eq.${pendingId}`);
+  } catch (e) {
+    console.error("approveTask error:", e);
   }
 }
 

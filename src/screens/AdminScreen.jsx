@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Badge from "../components/Badge";
-import { deletePending } from "../hooks";
+import { deletePending, approveTask } from "../hooks";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
@@ -20,8 +20,12 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const approve = async (entry) => {
     const task = getTaskById(entry.taskId);
     if (!task) return;
-    // Удаляем из Supabase сразу — физическое удаление строки
-    await deletePending(entry.id);
+    // Формируем запись о выполненном задании
+    const completedEntry = { id: crypto.randomUUID(), taskId: task.id, date: Date.now() };
+    // Сначала пишем в sq_completed_tasks, потом удаляем из sq_pending —
+    // это исключает race condition, при котором другое устройство могло
+    // увидеть задание как доступное в промежутке между двумя операциями.
+    await approveTask(entry.id, completedEntry);
     setSt(s => ({
       ...s,
       pendingTasks: s.pendingTasks.filter(p => p.id !== entry.id),
@@ -29,7 +33,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ...s.sergei,
         coins:          s.sergei.coins + task.reward,
         totalEarned:    (s.sergei.totalEarned || 0) + task.reward,
-        completedTasks: [...s.sergei.completedTasks, { id: crypto.randomUUID(), taskId: task.id, date: Date.now() }],
+        completedTasks: [...s.sergei.completedTasks, completedEntry],
         log: [
           { id: crypto.randomUUID(), type: "earn", text: `✅ Задание «${task.title}» одобрено`, amount: task.reward, ts: Date.now() },
           ...s.sergei.log,
