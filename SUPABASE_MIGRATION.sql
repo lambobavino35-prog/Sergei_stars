@@ -28,7 +28,6 @@ create table if not exists sq_tasks (
   emoji text default '⭐',
   category text default 'Дом',
   difficulty text default 'medium',
-  repeatable boolean default false,
   created_at timestamptz not null default now()
 );
 
@@ -90,8 +89,8 @@ create table if not exists sq_completed_tasks (
 insert into sq_profile (id) values ('sergei') on conflict do nothing;
 
 -- Вставляем дефолтное задание если таблица пустая
-insert into sq_tasks (id, title, description, reward, emoji, category, repeatable, difficulty)
-values ('t1', 'Сделать кровать', 'Заправь кровать аккуратно: подушки на месте, одеяло расправлено.', 10, '🛏️', 'Дом', true, 'easy')
+insert into sq_tasks (id, title, description, reward, emoji, category, difficulty)
+values ('t1', 'Сделать кровать', 'Заправь кровать аккуратно: подушки на месте, одеяло расправлено.', 10, '🛏️', 'Дом', 'easy')
 on conflict do nothing;
 
 -- Вставляем дефолтную награду если таблица пустая

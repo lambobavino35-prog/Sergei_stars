@@ -18,7 +18,7 @@ export const DEFAULT_REWARDS = [
 ];
 
 export const DEFAULT_TASKS = [
-  { id: "t1", title: "Сделать кровать", description: "Заправь кровать аккуратно: подушки на месте, одеяло расправлено.", reward: 10, emoji: "🛏️", category: "Дом", repeatable: true, difficulty: "easy" },
+  { id: "t1", title: "Сделать кровать", description: "Заправь кровать аккуратно: подушки на месте, одеяло расправлено.", reward: 10, emoji: "🛏️", category: "Дом", difficulty: "easy" },
 ];
 
 export const INITIAL_STATE = {

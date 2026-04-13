@@ -164,7 +164,6 @@ export function useSupabaseSync(st, setSt) {
             emoji:       t.emoji,
             category:    t.category,
             difficulty:  t.difficulty,
-            repeatable:  t.repeatable,
           })),
           rewards:    rewards.map(r => ({
             id:        r.id,
@@ -242,7 +241,6 @@ export function useSupabaseSync(st, setSt) {
             emoji:       t.emoji,
             category:    t.category,
             difficulty:  t.difficulty,
-            repeatable:  t.repeatable || false,
           }))
         ),
         // Награды — upsert всего списка

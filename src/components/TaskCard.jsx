@@ -21,7 +21,7 @@ export default function TaskCard({ task, isPending, isDone, onClose, onSubmit, o
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "'Baloo 2',sans-serif", fontWeight: 900, fontSize: 20, color: "#f1f5f9", lineHeight: 1.2 }}>{task.title}</div>
             <div style={{ fontSize: 11, color: "#475569", fontWeight: 700, marginTop: 4 }}>
-              {task.category} • {diffLabel}{task.repeatable ? " • 🔄 Повтор" : ""}
+              {task.category} • {diffLabel}
             </div>
           </div>
           <div style={{ background: "#1c1407", border: "1px solid #78350f", borderRadius: 12, padding: "8px 14px", fontWeight: 900, color: "#fbbf24", fontSize: 18, flexShrink: 0 }}>

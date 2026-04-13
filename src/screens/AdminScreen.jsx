@@ -5,7 +5,7 @@ import { deletePending, approveTask } from "../hooks";
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
   const [newReward, setNewReward] = useState({ title: "", cost: "", emoji: "🎁", category: "Отдых", oneTime: false });
-  const [newTask, setNewTask] = useState({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", repeatable: false });
+  const [newTask, setNewTask] = useState({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium"});
   const [manualCoins, setManualCoins] = useState("");
   const [manualChocolates, setManualChocolates] = useState("");
   const [manualStars, setManualStars] = useState("");
@@ -87,7 +87,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     if (!newTask.title.trim() || !newTask.reward) return showToast("Заполни все поля", "err");
     const t = { ...newTask, id: crypto.randomUUID(), reward: parseInt(newTask.reward) };
     setSt(s => ({ ...s, tasks: [...s.tasks, t] }));
-    setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", repeatable: false });
+    setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium"});
     showToast("📋 Задание добавлено!", "ok");
   };
 
@@ -406,7 +406,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 13, color: isDone ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
                           {t.title}
-                          {isDone && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>✅ {t.repeatable && completions.length > 1 ? `×${completions.length}` : "Выполнено"}</span>}
+                          {isDone && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>✅ Выполнено</span>}
                         </div>
                         {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
                         {isDone && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(completions[completions.length - 1]?.date || 0).toLocaleDateString("ru-RU")}</div>}
