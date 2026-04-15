@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, sendNotification } from "../hooks";
+import { deletePending, approveTask, insertNotification } from "../hooks";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
@@ -44,7 +44,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ].slice(0, 100),
       },
     }));
-    sendNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
+    insertNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
     showToast(`✅ Начислено ${task.reward} монет!`, "ok");
   };
 
@@ -63,7 +63,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ].slice(0, 100),
       },
     }));
-    sendNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
+    insertNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
     showToast("❌ Задание отклонено", "err");
   };
 
@@ -103,7 +103,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     delete t.deadlineHours;
     setSt(s => ({ ...s, tasks: [...s.tasks, t] }));
     setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", deadlineHours: "" });
-    sendNotification("📋 Новое задание!", `«${t.title}» — ${t.reward} 💰`);
+    insertNotification("📋 Новое задание!", `«${t.title}» — ${t.reward} 💰`);
     showToast("📋 Задание добавлено!", "ok");
   };
 
@@ -140,7 +140,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     const n = parseInt(manualCoins);
     if (!n || n === 0) return showToast("Введи кол-во монет", "err");
     setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 100) } }));
-    if (n > 0) sendNotification("💰 Начисление!", `+${n} монет`);
+    if (n > 0) insertNotification("💰 Начисление!", `+${n} монет`);
     setManualCoins(""); showToast(`${n > 0 ? "+" : ""}${n} монет начислено`, "ok");
   };
 
@@ -190,20 +190,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   const sendCustomNotification = async (title, body) => {
     try {
-      const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
-      if (SUPABASE_ENABLED) {
-        await fetch(`${SUPABASE_URL}/rest/v1/sq_notifications`, {
-          method: "POST",
-          headers: {
-            "apikey": SUPABASE_KEY,
-            "Authorization": `Bearer ${SUPABASE_KEY}`,
-            "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates",
-          },
-          body: JSON.stringify([{ id: crypto.randomUUID(), title, body, seen: false }]),
-        });
-      }
-      sendNotification(title, body);
+      await insertNotification(title, body);
       showToast("🔔 Уведомление отправлено!", "ok");
     } catch (e) {
       showToast("Ошибка отправки уведомления", "err");

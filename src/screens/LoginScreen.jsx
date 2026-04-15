@@ -1,11 +1,19 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SAVE_KEY } from "../constants";
+import { requestNotificationPermission } from "../hooks";
 
 export default function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
   const [shake, setShake] = useState(false);
+  const permAsked = useRef(false);
 
   const handleKey = (k) => {
+    // Запрашиваем разрешение на уведомления при первом нажатии —
+    // браузер требует пользовательский жест для показа диалога разрешения
+    if (!permAsked.current) {
+      permAsked.current = true;
+      requestNotificationPermission();
+    }
     if (k === "⌫") { setPin(p => p.slice(0, -1)); return; }
     const np = pin + k;
     setPin(np);

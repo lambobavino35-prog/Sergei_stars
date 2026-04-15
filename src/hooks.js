@@ -16,6 +16,33 @@ export function sendNotification(title, body, icon = "/favicon.ico") {
   try { new Notification(title, { body, icon }); } catch (e) { console.warn("Notification failed:", e); }
 }
 
+// ─── SERVICE WORKER ──────────────────────────────────────────
+// Регистрируем SW один раз при загрузке страницы.
+// SW работает независимо от статуса входа пользователя.
+export function registerNotificationSW() {
+  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
+  navigator.serviceWorker.register("/sw.js").catch((e) =>
+    console.warn("SW registration failed:", e)
+  );
+}
+
+// Отправляем SW команду проверить Supabase на новые уведомления.
+// Credentials передаём с каждым вызовом — SW stateless между сессиями.
+export function triggerSWNotificationCheck() {
+  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
+  const msg = {
+    type: "CHECK_NOTIFICATIONS",
+    supabaseUrl: SUPABASE_URL,
+    supabaseKey: SUPABASE_KEY,
+  };
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage(msg);
+  } else {
+    // На первом визите controller появляется только после активации SW
+    navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(msg));
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
 // ══════════════════════════════════════════════════════════════
@@ -97,14 +124,28 @@ async function sbDelete(table, filter) {
 //  SYNC — каждая сущность в своей таблице, нет конфликтов
 // ══════════════════════════════════════════════════════════════
 
-export function useSupabaseSync(st, setSt) {
+// Вставляет уведомление в Supabase — доставка через pull на устройстве Sergei.
+// В локальном режиме (без Supabase) сразу показывает браузерное уведомление.
+export async function insertNotification(title, body) {
+  if (!SUPABASE_ENABLED) {
+    sendNotification(title, body);
+    return;
+  }
+  try {
+    await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
+  } catch (e) {
+    console.error("insertNotification error:", e);
+  }
+}
+
+export function useSupabaseSync(st, setSt, user) {
   const [syncStatus, setSyncStatus] = useState("online");
   const stRef = useRef(st);
   const initialized = useRef(false);
   const pulling = useRef(false);
   const skipPush = useRef(false);
   const pushTimer = useRef(null);
-  const shownNotifIds = useRef(new Set());
+
 
   useEffect(() => { stRef.current = st; }, [st]);
 
@@ -220,15 +261,10 @@ export function useSupabaseSync(st, setSt) {
         return next;
       });
 
-      // Handle push notifications for unseen items
-      for (const n of notifications) {
-        if (!shownNotifIds.current.has(n.id)) {
-          sendNotification(n.title, n.body);
-          shownNotifIds.current.add(n.id);
-          // Mark as seen in Supabase
-          sbUpsert("sq_notifications", [{ id: n.id, title: n.title, body: n.body, seen: true }]).catch(() => {});
-        }
-      }
+      // Уведомления доставляются через Service Worker — он не зависит
+      // от того, кто залогинен, и показывает системные уведомления
+      // даже когда вкладка свёрнута. Просто триггерим проверку.
+      triggerSWNotificationCheck();
 
       setSyncStatus("online");
     } catch (e) {
