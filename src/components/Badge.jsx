@@ -18,6 +18,14 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
   const [particles, setParticles] = useState([]);
   const modelRef = useRef(null);
   const spinTimerRef = useRef(null);
+  const particleTimersRef = useRef([]);
+
+  useEffect(() => {
+    return () => {
+      particleTimersRef.current.forEach(clearTimeout);
+      clearTimeout(spinTimerRef.current);
+    };
+  }, []);
 
   let t = BADGE_TIERS[tier] || BADGE_TIERS[0];
   let modelUrl = null;
@@ -54,7 +62,8 @@ export default function Badge({ tier, size = 80, onClick, pulse = false, ambient
     const rotation = (Math.random() - 0.5) * 540;
 
     setParticles(prev => [...prev, { id, dx, dy, emoji, duration, scale, rotation }]);
-    setTimeout(() => setParticles(prev => prev.filter(p => p.id !== id)), duration * 1000);
+    const tid = setTimeout(() => setParticles(prev => prev.filter(p => p.id !== id)), duration * 1000);
+    particleTimersRef.current.push(tid);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [size, tierParticles.join(",")]);
 

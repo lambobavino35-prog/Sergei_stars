@@ -110,7 +110,7 @@ export default function App() {
             <AdminScreen st={st} setSt={setSt} showToast={showToast} />
           ) : (
             <>
-              {tab === "profile" && <ProfileScreen st={st} setSt={setSt} fireBurst={fireBurst} />}
+              {tab === "profile" && <ProfileScreen st={st} setSt={setSt} fireBurst={fireBurst} showToast={showToast} />}
               {tab === "tasks"   && <TasksScreen   st={st} setSt={setSt} showToast={showToast} />}
               {tab === "log"     && <LogScreen     st={st} />}
               {tab === "rewards" && <RewardScreen  st={st} setSt={setSt} fireBurst={fireBurst} showToast={showToast} />}

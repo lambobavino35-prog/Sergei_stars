@@ -36,9 +36,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
 
   const cancelTask = async (task) => {
     const toRemove = (st.pendingTasks || []).filter(p => p.taskId === task.id && p.userId === "sergei");
-    for (const entry of toRemove) {
-      await deletePending(entry.id);
-    }
+    await Promise.all(toRemove.map(entry => deletePending(entry.id)));
     setSt(s => ({
       ...s,
       pendingTasks: s.pendingTasks.filter(p => !(p.taskId === task.id && p.userId === "sergei")),

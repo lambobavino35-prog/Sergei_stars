@@ -21,7 +21,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
       sergei: {
         ...s.sergei,
         coins: s.sergei.coins - reward.cost,
-        purchasedRewards: [...s.sergei.purchasedRewards, { id: crypto.randomUUID(), rewardId: reward.id, title: reward.title, emoji: reward.emoji, boughtAt: Date.now() }],
+        purchasedRewards: [...s.sergei.purchasedRewards, { id: crypto.randomUUID(), rewardId: reward.id, title: reward.title, emoji: reward.emoji, cost: reward.cost, category: reward.category, boughtAt: Date.now() }],
         log: [{ id: crypto.randomUUID(), type: "buy", text: `🎁 Куплена награда «${reward.title}»`, amount: -reward.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
       }
     }));

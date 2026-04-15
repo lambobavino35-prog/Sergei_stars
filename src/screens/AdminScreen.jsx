@@ -70,17 +70,19 @@ export default function AdminScreen({ st, setSt, showToast }) {
   };
 
   const deleteReward = async (id) => {
-    // Физически удаляем из Supabase
     try {
       const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
       if (SUPABASE_ENABLED) {
-        await fetch(`${SUPABASE_URL}/rest/v1/sq_rewards?id=eq.${id}`, {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/sq_rewards?id=eq.${id}`, {
           method: "DELETE",
           headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
         });
+        if (!res.ok) throw new Error("Delete failed");
       }
-    } catch {}
-    setSt(s => ({ ...s, rewards: s.rewards.filter(x => x.id !== id) }));
+      setSt(s => ({ ...s, rewards: s.rewards.filter(x => x.id !== id) }));
+    } catch {
+      showToast("Ошибка удаления награды", "err");
+    }
   };
 
   const addTaskFn = () => {
@@ -95,7 +97,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     try {
       const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
       if (SUPABASE_ENABLED) {
-        await Promise.all([
+        const results = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/sq_tasks?id=eq.${id}`, {
             method: "DELETE",
             headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
@@ -105,16 +107,19 @@ export default function AdminScreen({ st, setSt, showToast }) {
             headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
           }),
         ]);
+        if (results.some(r => !r.ok)) throw new Error("Delete failed");
       }
-    } catch {}
-    setSt(s => ({
-      ...s,
-      tasks: s.tasks.filter(x => x.id !== id),
-      sergei: {
-        ...s.sergei,
-        completedTasks: s.sergei.completedTasks.filter(c => c.taskId !== id),
-      },
-    }));
+      setSt(s => ({
+        ...s,
+        tasks: s.tasks.filter(x => x.id !== id),
+        sergei: {
+          ...s.sergei,
+          completedTasks: s.sergei.completedTasks.filter(c => c.taskId !== id),
+        },
+      }));
+    } catch {
+      showToast("Ошибка удаления задания", "err");
+    }
   };
 
   const addManual = () => {

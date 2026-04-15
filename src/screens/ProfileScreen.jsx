@@ -1,20 +1,13 @@
 import { useState } from "react";
 import { BADGE_TIERS } from "../constants";
 import Badge from "../components/Badge";
-import Toast from "../components/Toast";
 
-export default function ProfileScreen({ st, setSt, fireBurst }) {
+export default function ProfileScreen({ st, setSt, fireBurst, showToast }) {
   const [editing, setEditing] = useState(null);
   const [nameVal, setNameVal] = useState(st.sergei.name);
   const [pinVal, setPinVal] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
-  const [toast, setToast] = useState(null);
   const customTiers = st.customTiers || [];
-
-  const showToast = (msg, type = "ok") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 2500);
-  };
 
   const handleBadgeClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -60,8 +53,6 @@ export default function ProfileScreen({ st, setSt, fireBurst }) {
 
   return (
     <div style={{ padding: "20px 16px", paddingBottom: 100 }}>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ display: "inline-block", padding: "50px 60px", marginBottom: -20 }}>
           <Badge tier={st.sergei.badgeTier} size={100} onClick={handleBadgeClick} pulse ambient customTiers={customTiers} />
