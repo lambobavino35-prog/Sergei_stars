@@ -83,7 +83,7 @@ async function sbDelete(table, filter) {
 //  SYNC — каждая сущность в своей таблице, нет конфликтов
 // ══════════════════════════════════════════════════════════════
 
-export function useSupabaseSync(st, setSt, user) {
+export function useSupabaseSync(st, setSt) {
   const [syncStatus, setSyncStatus] = useState("online");
   const stRef = useRef(st);
   const initialized = useRef(false);

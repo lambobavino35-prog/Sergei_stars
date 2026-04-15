@@ -35,7 +35,6 @@ export const INITIAL_STATE = {
     claimedTiers: [0],
     failedTasks: [],
     log: [],
-    lastActive: null,
     totalEarned: 0,
   },
   admin: { pin: "0000" },

@@ -37,7 +37,7 @@ export default function App() {
   const [tab, setTab] = useState("profile");
   const [toast, setToast] = useState(null);
   const [bursts, fireBurst] = useBurst();
-  const syncStatus = useSupabaseSync(st, setSt, user);
+  const syncStatus = useSupabaseSync(st, setSt);
 
   // Загружаем model-viewer для 3D значков
   useEffect(() => {
