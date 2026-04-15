@@ -165,7 +165,6 @@ export function useSupabaseSync(st, setSt, user) {
         customTiers,
         purchasedRewards,
         completedTasks,
-        notifications,
       ] = await Promise.all([
         sbGet("sq_profile", "?id=eq.sergei&select=*"),
         sbGet("sq_tasks", "?select=*&order=created_at.asc"),
@@ -175,7 +174,6 @@ export function useSupabaseSync(st, setSt, user) {
         sbGet("sq_custom_tiers", "?select=*&order=id.asc"),
         sbGet("sq_purchased_rewards", "?select=*&order=bought_at.desc"),
         sbGet("sq_completed_tasks", "?select=*&order=completed_at.desc&limit=200"),
-        sbGet("sq_notifications", "?seen=eq.false&select=*&order=created_at.asc"),
       ]);
 
       if (!profiles.length) { setSyncStatus("online"); return; }
@@ -261,10 +259,11 @@ export function useSupabaseSync(st, setSt, user) {
         return next;
       });
 
-      // Уведомления доставляются через Service Worker — он не зависит
-      // от того, кто залогинен, и показывает системные уведомления
-      // даже когда вкладка свёрнута. Просто триггерим проверку.
-      triggerSWNotificationCheck();
+      // Уведомления — отдельный fetch, не ломает pull если таблица не создана.
+      // Delivery через SW: показывает системное уведомление даже при свёрнутой вкладке.
+      try {
+        triggerSWNotificationCheck();
+      } catch (_) {}
 
       setSyncStatus("online");
     } catch (e) {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, insertNotification } from "../hooks";
+import { deletePending, approveTask, insertNotification, sendNotification, requestNotificationPermission, triggerSWNotificationCheck } from "../hooks";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
@@ -615,8 +615,74 @@ export default function AdminScreen({ st, setSt, showToast }) {
       )}
 
       {/* ─── УВЕДОМЛЕНИЯ ─── */}
-      {tab === "notif" && (
-        <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+      {tab === "notif" && (() => {
+        const perm = ("Notification" in window) ? Notification.permission : "unsupported";
+        const swActive = ("serviceWorker" in navigator) && !!navigator.serviceWorker.controller;
+        const permColor = perm === "granted" ? "#4ade80" : perm === "denied" ? "#f87171" : "#fbbf24";
+        const permLabel = perm === "granted" ? "✅ Разрешено" : perm === "denied" ? "❌ Запрещено (зайди в настройки браузера)" : perm === "unsupported" ? "⛔ Браузер не поддерживает" : "⏳ Не запрошено";
+        return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+          {/* ── Статус ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>📊 Статус</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Разрешение браузера</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: permColor }}>{permLabel}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Service Worker</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: swActive ? "#4ade80" : "#fbbf24" }}>{swActive ? "✅ Активен" : "⏳ Ещё не активен"}</span>
+              </div>
+            </div>
+            {perm === "denied" && (
+              <div style={{ marginTop: 10, padding: "10px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: 10, fontSize: 12, color: "#f87171", fontWeight: 700 }}>
+                Уведомления заблокированы. Открой настройки сайта в браузере (значок 🔒 слева от адреса) и разреши уведомления вручную.
+              </div>
+            )}
+            {perm === "default" && (
+              <button
+                onClick={() => requestNotificationPermission()}
+                style={{ marginTop: 10, width: "100%", padding: 11, background: "#0ea5e9", color: "#020617", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}
+              >
+                Запросить разрешение
+              </button>
+            )}
+          </div>
+
+          {/* ── Тест ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>🧪 Тест</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => {
+                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
+                  sendNotification("🔔 Прямой тест", "Если видишь это — разрешение работает!");
+                  showToast("Уведомление отправлено напрямую", "ok");
+                }}
+                style={{ padding: 12, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
+              >
+                🔔 Прямой тест (без Supabase)
+                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет что разрешение работает прямо сейчас</div>
+              </button>
+              <button
+                onClick={async () => {
+                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
+                  await insertNotification("📡 Тест через Supabase", "Если видишь это — вся цепочка работает!");
+                  triggerSWNotificationCheck();
+                  showToast("Запись в Supabase создана, SW уведомлён", "ok");
+                }}
+                style={{ padding: 12, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
+              >
+                📡 Тест через Supabase + SW
+                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет всю цепочку: Supabase → SW → уведомление</div>
+              </button>
+            </div>
+          </div>
+
+          {/* ── Отправить Sergei ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9", marginBottom: 14 }}>🔔 Отправить уведомление</div>
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Заголовок</div>
@@ -648,8 +714,10 @@ export default function AdminScreen({ st, setSt, showToast }) {
           >
             Отправить
           </button>
+          </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
