@@ -1,6 +1,6 @@
 import { useState } from "react";
 import TaskCard from "../components/TaskCard";
-import { deletePending } from "../hooks";
+import { deletePending, submitPending } from "../hooks";
 
 export default function TasksScreen({ st, setSt, showToast }) {
   const [filter, setFilter] = useState("Все");
@@ -18,7 +18,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
   const activeTasks = allFiltered.filter(t => !isDoneTask(t));
   const doneTasks   = allFiltered.filter(t => isDoneTask(t));
 
-  const submitTask = (task) => {
+  const submitTask = async (task) => {
     if (pendingIds.includes(task.id)) return showToast("Уже отправлено на проверку", "info");
     if (isDoneTask(task)) return showToast("Задание уже выполнено", "info");
     const entry = { id: crypto.randomUUID(), taskId: task.id, userId: "sergei", submittedAt: Date.now() };
@@ -32,6 +32,9 @@ export default function TasksScreen({ st, setSt, showToast }) {
     }));
     showToast(`📤 «${task.title}» отправлено на проверку!`, "info");
     setSelectedTask(null);
+    // Пишем напрямую в Supabase, не ждём debounced push —
+    // иначе pull может перезаписать локальный стейт раньше, чем push успеет отправить запись
+    await submitPending(entry);
   };
 
   const cancelTask = async (task) => {

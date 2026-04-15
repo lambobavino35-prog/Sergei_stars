@@ -351,6 +351,19 @@ export function useSupabaseSync(st, setSt) {
 //  Вспомогательный хук: удаление pending task из Supabase
 //  (reject / cancel — запись нужно физически удалить)
 // ══════════════════════════════════════════════════════════════
+export async function submitPending(entry) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_pending", [{
+      id:           entry.id,
+      task_id:      entry.taskId,
+      submitted_at: new Date(entry.submittedAt).toISOString(),
+    }]);
+  } catch (e) {
+    console.error("submitPending error:", e);
+  }
+}
+
 export async function deletePending(id) {
   if (!SUPABASE_ENABLED) return;
   try {
