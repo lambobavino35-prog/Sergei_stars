@@ -29,6 +29,11 @@ export default function LogScreen({ st }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, color: "#f1f5f9", fontSize: 14 }}>{entry.text}</div>
             <div style={{ fontSize: 11, color: "#334155", fontWeight: 700, marginTop: 3 }}>{formatDate(entry.ts)}</div>
+            {entry.comment && (
+              <div style={{ fontSize: 12, color: "#38bdf8", fontWeight: 700, marginTop: 4, fontStyle: "italic" }}>
+                💬 {entry.comment}
+              </div>
+            )}
           </div>
           {entry.amount != null && (
             <div style={{ color: entry.amount > 0 ? "#fbbf24" : "#f87171", fontWeight: 900, fontSize: 16, flexShrink: 0 }}>

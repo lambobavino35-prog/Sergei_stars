@@ -2,12 +2,12 @@
 //  BADGE TIER SYSTEM
 // ═══════════════════════════════════════════════
 export const BADGE_TIERS = [
-  { id: 0, name: "Новобранец", cost: 0,    emoji: "⚔️",  border: "2px solid #374151", bg: "linear-gradient(135deg,#1f2937,#111827)", glow: "none",               label: "Базовый",     particles: ["⚔️"],                          style: { fontSize: 40, filter: "none" } },
-  { id: 1, name: "Воин",       cost: 50,   emoji: "🛡️",  border: "2px solid #2563eb", bg: "linear-gradient(135deg,#1e3a8a,#1e40af)", glow: "0 0 20px #3b82f655", label: "Синий",       particles: ["🛡️","⚡","🛡️"],                style: { fontSize: 44, filter: "drop-shadow(0 0 8px #3b82f6)" } },
-  { id: 2, name: "Рыцарь",     cost: 150,  emoji: "🏆",  border: "2px solid #7c3aed", bg: "linear-gradient(135deg,#4c1d95,#5b21b6)", glow: "0 0 24px #8b5cf655", label: "Фиолетовый",  particles: ["🏆","✨","💫","🏆"],             style: { fontSize: 48, filter: "drop-shadow(0 0 12px #8b5cf6)" } },
-  { id: 3, name: "Легенда",    cost: 350,  emoji: "💎",  border: "2px solid #0ea5e9", bg: "linear-gradient(135deg,#0c4a6e,#075985)", glow: "0 0 30px #38bdf855", label: "Алмазный",    particles: ["💎","🌟","💠","✨","💎"],        style: { fontSize: 52, filter: "drop-shadow(0 0 16px #38bdf8)" } },
-  { id: 4, name: "Король",     cost: 700,  emoji: "👑",  border: "2px solid #f59e0b", bg: "linear-gradient(135deg,#78350f,#92400e)", glow: "0 0 40px #fbbf2477", label: "Золотой",     particles: ["👑","🔥","⚡","💥","👑","🌟"], style: { fontSize: 56, filter: "drop-shadow(0 0 20px #f59e0b)" } },
-  { id: 5, name: "Бог",        cost: 1500, emoji: "🌌",  border: "2px solid #ec4899", bg: "radial-gradient(circle,#4c0519,#1c1917,#0c0a09)", glow: "0 0 60px #ec489988", label: "Космический", particles: ["🌌","⭐","🌠","💫","🌟","✨","🌌"], style: { fontSize: 60, filter: "drop-shadow(0 0 24px #ec4899) drop-shadow(0 0 48px #a855f7)" } },
+  { id: 0, name: "Новобранец",    cost: 0,    emoji: "⚔️",  border: "2px solid #374151", bg: "linear-gradient(135deg,#1f2937,#111827)", glow: "none",               label: "Базовый",     particles: ["⚔️"],                          style: { fontSize: 40, filter: "none" } },
+  { id: 1, name: "Воин-хряк",    cost: 200,  emoji: "🛡️",  border: "2px solid #2563eb", bg: "linear-gradient(135deg,#1e3a8a,#1e40af)", glow: "0 0 20px #3b82f655", label: "Синий",       particles: ["🛡️","⚡","🛡️"],                style: { fontSize: 44, filter: "drop-shadow(0 0 8px #3b82f6)" } },
+  { id: 2, name: "Пликли",        cost: 500,  emoji: "🏆",  border: "2px solid #7c3aed", bg: "linear-gradient(135deg,#4c1d95,#5b21b6)", glow: "0 0 24px #8b5cf655", label: "Фиолетовый",  particles: ["🏆","✨","💫","🏆"],             style: { fontSize: 48, filter: "drop-shadow(0 0 12px #8b5cf6)" } },
+  { id: 3, name: "Слипи",         cost: 1000, emoji: "💎",  border: "2px solid #0ea5e9", bg: "linear-gradient(135deg,#0c4a6e,#075985)", glow: "0 0 30px #38bdf855", label: "Алмазный",    particles: ["💎","🌟","💠","✨","💎"],        style: { fontSize: 52, filter: "drop-shadow(0 0 16px #38bdf8)" } },
+  { id: 4, name: "Хряк-учёный",  cost: 1500, emoji: "👑",  border: "2px solid #f59e0b", bg: "linear-gradient(135deg,#78350f,#92400e)", glow: "0 0 40px #fbbf2477", label: "Золотой",     particles: ["👑","🔥","⚡","💥","👑","🌟"], style: { fontSize: 56, filter: "drop-shadow(0 0 20px #f59e0b)" } },
+  { id: 5, name: "Великий Пликар", cost: 2000, emoji: "🌌", border: "2px solid #ec4899", bg: "radial-gradient(circle,#4c0519,#1c1917,#0c0a09)", glow: "0 0 60px #ec489988", label: "Космический", particles: ["🌌","⭐","🌠","💫","🌟","✨","🌌"], style: { fontSize: 60, filter: "drop-shadow(0 0 24px #ec4899) drop-shadow(0 0 48px #a855f7)" } },
 ];
 
 // ═══════════════════════════════════════════════
@@ -32,6 +32,8 @@ export const INITIAL_STATE = {
     completedTasks: [],
     purchasedRewards: [],
     purchasedTiers: [0],
+    claimedTiers: [0],
+    failedTasks: [],
     log: [],
     lastActive: null,
     totalEarned: 0,

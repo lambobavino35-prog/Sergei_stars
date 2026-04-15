@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import TaskCard from "../components/TaskCard";
 import { deletePending, submitPending } from "../hooks";
+
+function formatDeadlineLeft(deadlineAt) {
+  const ms = deadlineAt - Date.now();
+  if (ms <= 0) return "🔴 Просрочено";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `⏰ ${h}ч ${m}м` : `⏰ ${m}м`;
+}
 
 export default function TasksScreen({ st, setSt, showToast }) {
   const [filter, setFilter] = useState("Все");
@@ -9,14 +17,47 @@ export default function TasksScreen({ st, setSt, showToast }) {
   const categories = ["Все", ...Array.from(new Set(st.tasks.map(t => t.category)))];
 
   const pendingIds = (st.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId);
+  const failedTaskIds = new Set(st.sergei.failedTasks || []);
 
   // Все выполненные задания из БД — все задания одноразовые
   const completedEver = new Set((st.sergei.completedTasks || []).map(c => c.taskId));
   const isDoneTask = (task) => completedEver.has(task.id);
 
+  // Check deadlines every 60 seconds
+  useEffect(() => {
+    const checkDeadlines = () => {
+      const now = Date.now();
+      setSt(s => {
+        const currentFailed = new Set(s.sergei.failedTasks || []);
+        const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
+        const newFailed = [];
+        const newLogs = [];
+        for (const task of s.tasks) {
+          if (task.deadlineAt && !currentFailed.has(task.id) && !currentCompleted.has(task.id) && now > task.deadlineAt) {
+            newFailed.push(task.id);
+            newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
+          }
+        }
+        if (newFailed.length === 0) return s;
+        return {
+          ...s,
+          sergei: {
+            ...s.sergei,
+            failedTasks: [...(s.sergei.failedTasks || []), ...newFailed],
+            log: [...newLogs, ...s.sergei.log].slice(0, 100),
+          },
+        };
+      });
+    };
+    checkDeadlines();
+    const id = setInterval(checkDeadlines, 60000);
+    return () => clearInterval(id);
+  }, [setSt]);
+
   const allFiltered = st.tasks.filter(t => filter === "Все" || t.category === filter);
-  const activeTasks = allFiltered.filter(t => !isDoneTask(t));
+  const activeTasks = allFiltered.filter(t => !isDoneTask(t) && !failedTaskIds.has(t.id));
   const doneTasks   = allFiltered.filter(t => isDoneTask(t));
+  const failedTasks = allFiltered.filter(t => failedTaskIds.has(t.id) && !isDoneTask(t));
 
   const submitTask = async (task) => {
     if (pendingIds.includes(task.id)) return showToast("Уже отправлено на проверку", "info");
@@ -52,30 +93,38 @@ export default function TasksScreen({ st, setSt, showToast }) {
     setSelectedTask(null);
   };
 
-  const TaskRow = ({ task }) => {
+  const TaskRow = ({ task, isFailed }) => {
     const isPending = pendingIds.includes(task.id);
     const isDone    = isDoneTask(task);
+    const deadlineLabel = task.deadlineAt ? formatDeadlineLeft(task.deadlineAt) : null;
+    const isOverdue = deadlineLabel === "🔴 Просрочено";
     return (
       <div
-        onClick={() => setSelectedTask(task)}
+        onClick={() => !isFailed && setSelectedTask(task)}
         style={{
-          background: isDone ? "linear-gradient(135deg,#031a10,#042a18)" : isPending ? "linear-gradient(135deg,#1c1407,#120c00)" : "linear-gradient(135deg,#0f172a,#020617)",
-          border: isDone ? "1px solid #134e2a55" : isPending ? "1px solid #78350f55" : "1px solid #1e3a5f",
-          borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both", cursor: "pointer", opacity: isDone ? 0.65 : 1,
+          background: isFailed ? "linear-gradient(135deg,#2d0a0a,#1a0505)" : isDone ? "linear-gradient(135deg,#031a10,#042a18)" : isPending ? "linear-gradient(135deg,#1c1407,#120c00)" : "linear-gradient(135deg,#0f172a,#020617)",
+          border: isFailed ? "1px solid #7f1d1d55" : isDone ? "1px solid #134e2a55" : isPending ? "1px solid #78350f55" : "1px solid #1e3a5f",
+          borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both", cursor: isFailed ? "default" : "pointer", opacity: isDone ? 0.65 : 1,
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <span style={{ fontSize: 28, flexShrink: 0 }}>{task.emoji}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, color: "#f1f5f9", marginBottom: 2 }}>{task.title}</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: isFailed ? "#f87171" : "#f1f5f9", marginBottom: 2 }}>{task.title}</div>
             {task.description && <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.description}</div>}
             <div style={{ fontSize: 11, color: "#334155", fontWeight: 700 }}>
               {task.category} • {task.difficulty === "easy" ? "🟢 Лёгкое" : task.difficulty === "medium" ? "🟡 Среднее" : "🔴 Сложное"}
             </div>
+            {deadlineLabel && !isDone && (
+              <div style={{ fontSize: 11, fontWeight: 800, color: isOverdue ? "#f87171" : "#fbbf24", marginTop: 3 }}>
+                {deadlineLabel}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
             <span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {task.reward}</span>
-            {isDone    ? <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 11 }}>✅ Выполнено</span>
+            {isFailed    ? <span style={{ color: "#f87171", fontWeight: 800, fontSize: 11 }}>💀 Провалено</span>
+            : isDone    ? <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 11 }}>✅ Выполнено</span>
             : isPending ? <span style={{ color: "#fbbf24", fontWeight: 800, fontSize: 11 }}>⏳ Проверка</span>
             :             <span style={{ color: "#38bdf8", fontWeight: 800, fontSize: 11 }}>Нажми →</span>}
           </div>
@@ -106,6 +155,16 @@ export default function TasksScreen({ st, setSt, showToast }) {
         <div style={{ textAlign: "center", padding: 40, color: "#334155" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📭</div><div style={{ fontWeight: 700 }}>Нет заданий</div></div>
       )}
       {activeTasks.map(task => <TaskRow key={task.id} task={task} />)}
+      {failedTasks.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 10 }}>
+            <div style={{ flex: 1, height: 1, background: "#7f1d1d33" }} />
+            <span style={{ fontSize: 12, fontWeight: 800, color: "#f87171", textTransform: "uppercase", letterSpacing: ".05em" }}>💀 Провалено ({failedTasks.length})</span>
+            <div style={{ flex: 1, height: 1, background: "#7f1d1d33" }} />
+          </div>
+          {failedTasks.map(task => <TaskRow key={task.id} task={task} isFailed />)}
+        </>
+      )}
       {doneTasks.length > 0 && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 10 }}>

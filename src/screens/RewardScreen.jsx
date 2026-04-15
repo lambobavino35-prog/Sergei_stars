@@ -6,7 +6,9 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const [tab, setTab] = useState("shop");
   const [previewTier, setPreviewTier] = useState(null);
   const coins = st.sergei.coins;
-  const purchasedTiers = st.sergei.purchasedTiers || [0];
+  const claimedTiers = st.sergei.claimedTiers || [0];
+  const purchasedTiers = claimedTiers; // backwards compat alias
+  const totalEarned = st.sergei.totalEarned || 0;
   const purchasedRewards = st.sergei.purchasedRewards || [];
   const customTiers = st.customTiers || [];
   const currencyShop = st.currencyShop || { chocolate: { enabled: false, price: 100 }, star: { enabled: false, price: 150 } };
@@ -64,12 +66,24 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     showToast("⭐️ Звезда получена!", "ok");
   };
 
-  const buyTier = (tier, isCustom, e) => {
-    if (purchasedTiers.includes(tier.id)) return showToast("Уже куплено!", "info");
-    if (!isCustom) {
-      const prevId = tier.id - 1;
-      if (!purchasedTiers.includes(prevId)) return showToast("Сначала купи предыдущий тир", "err");
-    }
+  const claimTier = (tier, e) => {
+    setSt(s => ({
+      ...s,
+      sergei: {
+        ...s.sergei,
+        badgeTier: tier.id,
+        claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
+        purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
+        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Получен тир «${tier.name}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+      }
+    }));
+    const rect = e.currentTarget.getBoundingClientRect();
+    fireBurst(tier.particles || ["✨","💫","🌟"], rect.left + rect.width / 2, rect.top);
+    showToast("🔥 Новый тир получен!", "ok");
+  };
+
+  const buyCustomTier = (tier, e) => {
+    if (claimedTiers.includes(tier.id)) return showToast("Уже куплено!", "info");
     if (coins < tier.cost) return showToast(`Нужно ещё ${tier.cost - coins} монет 💰`, "err");
     setSt(s => ({
       ...s,
@@ -77,7 +91,8 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         ...s.sergei,
         coins: s.sergei.coins - tier.cost,
         badgeTier: tier.id,
-        purchasedTiers: [...(s.sergei.purchasedTiers || [0]), tier.id],
+        claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
+        purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
         log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Куплен тир «${tier.name}»`, amount: -tier.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
       }
     }));
@@ -172,9 +187,9 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
               >
                 Закрыть
               </button>
-              {!purchasedTiers.includes(previewTier.id) && (
+              {!claimedTiers.includes(previewTier.id) && (
                 <button
-                  onClick={e => { setPreviewTier(null); buyTier(previewTier, true, e); }}
+                  onClick={e => { setPreviewTier(null); buyCustomTier(previewTier, e); }}
                   style={{ flex: 1, padding: "12px 0", background: "#a855f7", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
                 >
                   💰 {previewTier.cost}
@@ -321,32 +336,37 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
       {tab === "tiers" && (
         <>
           <div style={{ color: "#475569", fontSize: 12, fontWeight: 700, marginBottom: 12 }}>
-            Покупай тиры последовательно. Кастомные тиры доступны в любое время!
+            Тиры открываются по мере заработка монет. Кастомные тиры доступны за монеты в любое время!
           </div>
 
           {BADGE_TIERS.slice(1).map(tier => {
-            const owned    = purchasedTiers.includes(tier.id);
-            const locked   = !owned && !purchasedTiers.includes(tier.id - 1);
-            const needMore = !owned && purchasedTiers.includes(tier.id - 1) && coins < tier.cost;
-            const canBuy   = !owned && purchasedTiers.includes(tier.id - 1) && coins >= tier.cost;
+            const claimed   = claimedTiers.includes(tier.id);
+            const unlocked  = totalEarned >= tier.cost;
+            const progress  = Math.min(100, (totalEarned / tier.cost) * 100);
             return (
-              <div key={tier.id} style={{ background: owned ? "linear-gradient(135deg,#031a10,#042a18)" : "linear-gradient(135deg,#0f172a,#020617)", border: owned ? "1px solid #134e2a" : "1px solid #1e3a5f", borderRadius: 20, padding: 16, marginBottom: 10, opacity: locked ? 0.5 : 1, animation: "fadeUp .3s ease both" }}>
+              <div key={tier.id} style={{ background: claimed ? "linear-gradient(135deg,#031a10,#042a18)" : "linear-gradient(135deg,#0f172a,#020617)", border: claimed ? "1px solid #134e2a" : "1px solid #1e3a5f", borderRadius: 20, padding: 16, marginBottom: 10, opacity: (!claimed && !unlocked) ? 0.6 : 1, animation: "fadeUp .3s ease both" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <Badge tier={tier.id} size={60} customTiers={customTiers} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 900, fontSize: 16, color: "#f1f5f9" }}>{tier.name}</div>
                     <div style={{ fontSize: 11, color: "#475569", fontWeight: 700, marginBottom: 4 }}>{tier.label}</div>
                     <div style={{ fontSize: 11, color: "#334155", fontWeight: 700 }}>Взрыв: {tier.particles.join(" ")}</div>
+                    {!claimed && !unlocked && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ height: 6, background: "#0d1526", borderRadius: 99, overflow: "hidden", marginBottom: 4 }}>
+                          <div style={{ height: "100%", width: progress + "%", borderRadius: 99, background: "linear-gradient(90deg,#0ea5e9,#38bdf8)", transition: "width 1s ease" }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: "#475569", fontWeight: 700 }}>Заработано: {totalEarned} / {tier.cost}</div>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                    {owned ? (
-                      <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 13 }}>✅ Куплено</span>
-                    ) : locked ? (
-                      <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><span style={{ color: "#475569", fontWeight: 800, fontSize: 12 }}>🔒 Заперто</span></>
-                    ) : needMore ? (
-                      <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><span style={{ color: "#f87171", fontWeight: 800, fontSize: 11 }}>Нужно ещё {tier.cost - coins} 💰</span></>
+                    {claimed ? (
+                      <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 13 }}>✅ Получено</span>
+                    ) : unlocked ? (
+                      <button onClick={e => claimTier(tier, e)} style={{ padding: "9px 14px", background: "#fbbf24", color: "#020617", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>🎁 Получить</button>
                     ) : (
-                      <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><button onClick={e => buyTier(tier, false, e)} style={{ padding: "7px 14px", background: "#fbbf24", color: "#020617", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Купить</button></>
+                      <span style={{ color: "#475569", fontWeight: 800, fontSize: 12 }}>🔒 {tier.cost} заработано</span>
                     )}
                   </div>
                 </div>
@@ -362,7 +382,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
                 <div style={{ flex: 1, height: 1, background: "#7c3aed33" }} />
               </div>
               {customTiers.map(tier => {
-                const owned = purchasedTiers.includes(tier.id);
+                const owned = claimedTiers.includes(tier.id);
                 const needMore = !owned && coins < tier.cost;
                 return (
                   <div key={tier.id} style={{ background: owned ? "linear-gradient(135deg,#1c0a2e,#0a0520)" : "linear-gradient(135deg,#0f172a,#020617)", border: owned ? "1px solid #7c3aed" : "1px solid #4c1d9555", borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both" }}>
@@ -390,7 +410,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
                         ) : needMore ? (
                           <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><span style={{ color: "#f87171", fontWeight: 800, fontSize: 11 }}>Нужно ещё {tier.cost - coins} 💰</span></>
                         ) : (
-                          <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><button onClick={e => buyTier(tier, true, e)} style={{ padding: "7px 14px", background: "#a855f7", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Купить</button></>
+                          <><span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {tier.cost}</span><button onClick={e => buyCustomTier(tier, e)} style={{ padding: "7px 14px", background: "#a855f7", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Купить</button></>
                         )}
                       </div>
                     </div>

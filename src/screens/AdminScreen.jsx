@@ -1,23 +1,27 @@
 import { useState } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask } from "../hooks";
+import { deletePending, approveTask, sendNotification } from "../hooks";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
   const [newReward, setNewReward] = useState({ title: "", cost: "", emoji: "🎁", category: "Отдых", oneTime: false });
-  const [newTask, setNewTask] = useState({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium"});
+  const [newTask, setNewTask] = useState({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", deadlineHours: "" });
   const [manualCoins, setManualCoins] = useState("");
   const [manualChocolates, setManualChocolates] = useState("");
   const [manualStars, setManualStars] = useState("");
   const [newTier, setNewTier] = useState({ name: "", cost: "", emoji: "🔮", modelUrl: "", particles: "✨,💫,🌟" });
   const [previewTier, setPreviewTier] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [actionComment, setActionComment] = useState("");
+  const [notifTitle, setNotifTitle] = useState("📢 Уведомление");
+  const [notifBody, setNotifBody] = useState("");
 
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");
   const getTaskById = id => st.tasks.find(t => t.id === id);
   const customTiers = st.customTiers || [];
   const currencyShop = st.currencyShop || { chocolate: { enabled: false, price: 100 }, star: { enabled: false, price: 150 } };
 
-  const approve = async (entry) => {
+  const approve = async (entry, comment = "") => {
     const task = getTaskById(entry.taskId);
     if (!task) return;
     // Формируем запись о выполненном задании
@@ -35,15 +39,16 @@ export default function AdminScreen({ st, setSt, showToast }) {
         totalEarned:    (s.sergei.totalEarned || 0) + task.reward,
         completedTasks: [...s.sergei.completedTasks, completedEntry],
         log: [
-          { id: crypto.randomUUID(), type: "earn", text: `✅ Задание «${task.title}» одобрено`, amount: task.reward, ts: Date.now() },
+          { id: crypto.randomUUID(), type: "earn", text: `✅ Задание «${task.title}» одобрено`, amount: task.reward, ts: Date.now(), comment: comment || null },
           ...s.sergei.log,
         ].slice(0, 100),
       },
     }));
+    sendNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
     showToast(`✅ Начислено ${task.reward} монет!`, "ok");
   };
 
-  const reject = async (entry) => {
+  const reject = async (entry, comment = "") => {
     const task = getTaskById(entry.taskId);
     // Удаляем из Supabase сразу
     await deletePending(entry.id);
@@ -53,11 +58,12 @@ export default function AdminScreen({ st, setSt, showToast }) {
       sergei: {
         ...s.sergei,
         log: [
-          { id: crypto.randomUUID(), type: "reject", text: `❌ Задание «${task?.title || "—"}» отклонено`, ts: Date.now() },
+          { id: crypto.randomUUID(), type: "reject", text: `❌ Задание «${task?.title || "—"}» отклонено`, ts: Date.now(), comment: comment || null },
           ...s.sergei.log,
         ].slice(0, 100),
       },
     }));
+    sendNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
     showToast("❌ Задание отклонено", "err");
   };
 
@@ -87,9 +93,17 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   const addTaskFn = () => {
     if (!newTask.title.trim() || !newTask.reward) return showToast("Заполни все поля", "err");
-    const t = { ...newTask, id: crypto.randomUUID(), reward: parseInt(newTask.reward) };
+    const deadlineHours = parseInt(newTask.deadlineHours);
+    const t = {
+      ...newTask,
+      id: crypto.randomUUID(),
+      reward: parseInt(newTask.reward),
+      deadlineAt: deadlineHours > 0 ? Date.now() + deadlineHours * 3600 * 1000 : null,
+    };
+    delete t.deadlineHours;
     setSt(s => ({ ...s, tasks: [...s.tasks, t] }));
-    setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium"});
+    setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", deadlineHours: "" });
+    sendNotification("📋 Новое задание!", `«${t.title}» — ${t.reward} 💰`);
     showToast("📋 Задание добавлено!", "ok");
   };
 
@@ -126,6 +140,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     const n = parseInt(manualCoins);
     if (!n || n === 0) return showToast("Введи кол-во монет", "err");
     setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 100) } }));
+    if (n > 0) sendNotification("💰 Начисление!", `+${n} монет`);
     setManualCoins(""); showToast(`${n > 0 ? "+" : ""}${n} монет начислено`, "ok");
   };
 
@@ -171,6 +186,28 @@ export default function AdminScreen({ st, setSt, showToast }) {
       }
     } catch {}
     setSt(s => ({ ...s, customTiers: (s.customTiers || []).filter(x => x.id !== id) }));
+  };
+
+  const sendCustomNotification = async (title, body) => {
+    try {
+      const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
+      if (SUPABASE_ENABLED) {
+        await fetch(`${SUPABASE_URL}/rest/v1/sq_notifications`, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+          },
+          body: JSON.stringify([{ id: crypto.randomUUID(), title, body, seen: false }]),
+        });
+      }
+      sendNotification(title, body);
+      showToast("🔔 Уведомление отправлено!", "ok");
+    } catch (e) {
+      showToast("Ошибка отправки уведомления", "err");
+    }
   };
 
   const iField = (label, val, onChange, opts = {}) => (
@@ -264,6 +301,50 @@ export default function AdminScreen({ st, setSt, showToast }) {
         </div>
       )}
 
+      {/* ─── REACTION MODAL ─── */}
+      {pendingAction && (() => {
+        const task = getTaskById(pendingAction.entry.taskId);
+        return (
+          <div
+            onClick={() => setPendingAction(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 9998, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)" }}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 24, padding: "24px 20px", width: "min(340px, 90vw)", display: "flex", flexDirection: "column", gap: 14, boxShadow: "0 0 40px #00000088" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: pendingAction.type === "approve" ? "#4ade80" : "#f87171", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                {pendingAction.type === "approve" ? "✅ Одобрить задание" : "❌ Отклонить задание"}
+              </div>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "#f1f5f9" }}>{task?.emoji} {task?.title}</div>
+              <textarea
+                value={actionComment}
+                onChange={e => setActionComment(e.target.value)}
+                placeholder="Реакция... (необязательно)"
+                rows={3}
+                style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none", resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    if (pendingAction.type === "approve") approve(pendingAction.entry, actionComment);
+                    else reject(pendingAction.entry, actionComment);
+                    setPendingAction(null);
+                    setActionComment("");
+                  }}
+                  style={{ flex: 1, padding: 12, background: pendingAction.type === "approve" ? "#059669" : "#dc2626", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+                >
+                  Подтвердить
+                </button>
+                <button
+                  onClick={() => { setPendingAction(null); setActionComment(""); }}
+                  style={{ flex: 1, padding: 12, background: "#1e3a5f", color: "#94a3b8", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontFamily: "'Baloo 2',sans-serif", fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>🔐 Админ</div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -280,6 +361,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
           ["tasks", "📋 Задания"],
           ["tiers", "🔮 Тиры"],
           ["balance", "💰 Баланс"],
+          ["notif", "🔔 Уведомления"],
         ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flexShrink: 0, padding: "9px 14px", border: tab === id ? "none" : "1px solid #1e3a5f", borderRadius: 12, background: tab === id ? "#fbbf24" : "#0f172a", color: tab === id ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>{label}</button>
         ))}
@@ -305,8 +387,8 @@ export default function AdminScreen({ st, setSt, showToast }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => approve(entry)} style={{ flex: 1, padding: 12, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}>✅ Одобрить</button>
-                  <button onClick={() => reject(entry)} style={{ flex: 1, padding: 12, background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}>❌ Отклонить</button>
+                  <button onClick={() => { setPendingAction({ type: "approve", entry }); setActionComment(""); }} style={{ flex: 1, padding: 12, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}>✅ Одобрить</button>
+                  <button onClick={() => { setPendingAction({ type: "reject", entry }); setActionComment(""); }} style={{ flex: 1, padding: 12, background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}>❌ Отклонить</button>
                 </div>
               </div>
             );
@@ -395,6 +477,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
             {iField("Категория", newTask.category, v => setNewTask(p => ({ ...p, category: v })), { type: "select", options: ["Дом","Кухня","Романтика","Другое"] })}
             {iField("Сложность", newTask.difficulty, v => setNewTask(p => ({ ...p, difficulty: v })), { type: "select", options: ["easy","medium","hard"] })}
           </div>
+          {iField("⏰ Дедлайн (часов)", newTask.deadlineHours, v => setNewTask(p => ({ ...p, deadlineHours: v })), { type: "number", placeholder: "Необязательно, например 24" })}
           <button onClick={addTaskFn} style={{ width: "100%", padding: 14, background: "#38bdf8", color: "#020617", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}>Добавить задание</button>
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все задания ({st.tasks.length})</div>
@@ -414,6 +497,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
                           {isDone && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>✅ Выполнено</span>}
                         </div>
                         {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
+                        {t.deadlineAt && <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 700 }}>⏰ Дедлайн: {new Date(t.deadlineAt).toLocaleString("ru-RU")}</div>}
                         {isDone && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(completions[completions.length - 1]?.date || 0).toLocaleDateString("ru-RU")}</div>}
                       </div>
                     </div>
@@ -540,6 +624,43 @@ export default function AdminScreen({ st, setSt, showToast }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ─── УВЕДОМЛЕНИЯ ─── */}
+      {tab === "notif" && (
+        <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9", marginBottom: 14 }}>🔔 Отправить уведомление</div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Заголовок</div>
+            <input
+              type="text"
+              value={notifTitle}
+              onChange={e => setNotifTitle(e.target.value)}
+              placeholder="📢 Уведомление"
+              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }}
+            />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Текст</div>
+            <textarea
+              value={notifBody}
+              onChange={e => setNotifBody(e.target.value)}
+              placeholder="Текст уведомления..."
+              rows={4}
+              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none", resize: "vertical" }}
+            />
+          </div>
+          <button
+            onClick={() => {
+              if (!notifTitle.trim() || !notifBody.trim()) return showToast("Заполни заголовок и текст", "err");
+              sendCustomNotification(notifTitle.trim(), notifBody.trim());
+              setNotifBody("");
+            }}
+            style={{ width: "100%", padding: 14, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
+          >
+            Отправить
+          </button>
         </div>
       )}
     </div>

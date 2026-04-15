@@ -2,6 +2,21 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { SAVE_KEY, INITIAL_STATE, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "./constants";
 
 // ══════════════════════════════════════════════════════════════
+//  PUSH NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════
+
+export function requestNotificationPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+export function sendNotification(title, body, icon = "/favicon.ico") {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try { new Notification(title, { body, icon }); } catch (e) { console.warn("Notification failed:", e); }
+}
+
+// ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
 // ══════════════════════════════════════════════════════════════
 
@@ -89,6 +104,7 @@ export function useSupabaseSync(st, setSt) {
   const pulling = useRef(false);
   const skipPush = useRef(false);
   const pushTimer = useRef(null);
+  const shownNotifIds = useRef(new Set());
 
   useEffect(() => { stRef.current = st; }, [st]);
 
@@ -108,6 +124,7 @@ export function useSupabaseSync(st, setSt) {
         customTiers,
         purchasedRewards,
         completedTasks,
+        notifications,
       ] = await Promise.all([
         sbGet("sq_profile", "?id=eq.sergei&select=*"),
         sbGet("sq_tasks", "?select=*&order=created_at.asc"),
@@ -117,6 +134,7 @@ export function useSupabaseSync(st, setSt) {
         sbGet("sq_custom_tiers", "?select=*&order=id.asc"),
         sbGet("sq_purchased_rewards", "?select=*&order=bought_at.desc"),
         sbGet("sq_completed_tasks", "?select=*&order=completed_at.desc&limit=200"),
+        sbGet("sq_notifications", "?seen=eq.false&select=*&order=created_at.asc"),
       ]);
 
       if (!profiles.length) { setSyncStatus("online"); return; }
@@ -134,13 +152,16 @@ export function useSupabaseSync(st, setSt) {
             stars:            p.stars,
             badgeTier:        p.badge_tier,
             purchasedTiers:   p.purchased_tiers || [0],
+            claimedTiers:     p.claimed_tiers || p.purchased_tiers || [0],
+            failedTasks:      p.failed_tasks || [],
             totalEarned:      p.total_earned,
             log:              log.map(l => ({
-              id:     l.id,
-              type:   l.type,
-              text:   l.text,
-              amount: l.amount,
-              ts:     new Date(l.ts).getTime(),
+              id:      l.id,
+              type:    l.type,
+              text:    l.text,
+              amount:  l.amount,
+              ts:      new Date(l.ts).getTime(),
+              comment: l.comment || null,
             })),
             completedTasks:   completedTasks.map(c => ({
               id:     c.id,
@@ -164,6 +185,7 @@ export function useSupabaseSync(st, setSt) {
             emoji:       t.emoji,
             category:    t.category,
             difficulty:  t.difficulty,
+            deadlineAt:  t.deadline_at ? new Date(t.deadline_at).getTime() : null,
           })),
           rewards:    rewards.map(r => ({
             id:        r.id,
@@ -198,6 +220,16 @@ export function useSupabaseSync(st, setSt) {
         return next;
       });
 
+      // Handle push notifications for unseen items
+      for (const n of notifications) {
+        if (!shownNotifIds.current.has(n.id)) {
+          sendNotification(n.title, n.body);
+          shownNotifIds.current.add(n.id);
+          // Mark as seen in Supabase
+          sbUpsert("sq_notifications", [{ id: n.id, title: n.title, body: n.body, seen: true }]).catch(() => {});
+        }
+      }
+
       setSyncStatus("online");
     } catch (e) {
       console.error("Pull error:", e);
@@ -226,7 +258,9 @@ export function useSupabaseSync(st, setSt) {
           chocolates:      s.sergei.chocolates || 0,
           stars:           s.sergei.stars || 0,
           badge_tier:      s.sergei.badgeTier,
-          purchased_tiers: s.sergei.purchasedTiers || [0],
+          purchased_tiers: s.sergei.claimedTiers || [0],
+          claimed_tiers:   s.sergei.claimedTiers || [0],
+          failed_tasks:    s.sergei.failedTasks || [],
           total_earned:    s.sergei.totalEarned || 0,
           currency_shop:   s.currencyShop,
           updated_at:      new Date().toISOString(),
@@ -241,6 +275,7 @@ export function useSupabaseSync(st, setSt) {
             emoji:       t.emoji,
             category:    t.category,
             difficulty:  t.difficulty,
+            deadline_at: t.deadlineAt ? new Date(t.deadlineAt).toISOString() : null,
           }))
         ),
         // Награды — upsert всего списка
@@ -265,11 +300,12 @@ export function useSupabaseSync(st, setSt) {
         // Лог — upsert (только добавляем, не удаляем)
         s.sergei.log.length > 0 && sbUpsert("sq_log",
           s.sergei.log.map(l => ({
-            id:     l.id,
-            type:   l.type,
-            text:   l.text,
-            amount: l.amount || 0,
-            ts:     new Date(l.ts).toISOString(),
+            id:      l.id,
+            type:    l.type,
+            text:    l.text,
+            amount:  l.amount || 0,
+            ts:      new Date(l.ts).toISOString(),
+            comment: l.comment || null,
           }))
         ),
         // Удаляем из sq_log записи старше тех, что уже не входят в срез 100

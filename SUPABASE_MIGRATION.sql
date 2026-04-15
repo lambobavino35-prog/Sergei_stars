@@ -120,3 +120,21 @@ create policy "anon_all" on sq_log              for all to anon using (true) wit
 create policy "anon_all" on sq_custom_tiers     for all to anon using (true) with check (true);
 create policy "anon_all" on sq_purchased_rewards for all to anon using (true) with check (true);
 create policy "anon_all" on sq_completed_tasks  for all to anon using (true) with check (true);
+
+-- ══════════════════════════════════════════════════════════════
+--  MIGRATION v2 — запусти если уже применил v1
+-- ══════════════════════════════════════════════════════════════
+alter table sq_tasks add column if not exists deadline_at timestamptz default null;
+alter table sq_log add column if not exists comment text default null;
+alter table sq_profile add column if not exists failed_tasks jsonb not null default '[]';
+alter table sq_profile add column if not exists claimed_tiers integer[] not null default array[0];
+
+create table if not exists sq_notifications (
+  id text primary key,
+  title text not null,
+  body text not null,
+  seen boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table sq_notifications enable row level security;
+create policy "anon_all" on sq_notifications for all to anon using (true) with check (true);

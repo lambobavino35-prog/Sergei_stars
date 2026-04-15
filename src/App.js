@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { NAV_ITEMS, SYNC_ICONS, SUPABASE_ENABLED } from "./constants";
-import { useSt, useSupabaseSync, useBurst } from "./hooks";
+import { useSt, useSupabaseSync, useBurst, requestNotificationPermission } from "./hooks";
 import Toast from "./components/Toast";
 import BurstLayer from "./components/BurstLayer";
 import Badge from "./components/Badge";
@@ -54,7 +54,7 @@ export default function App() {
     setTimeout(() => setToast(null), 2800);
   }, []);
 
-  const handleLogin = (uid) => setUser(uid);
+  const handleLogin = (uid) => { setUser(uid); requestNotificationPermission(); };
   const handleLogout = () => { setUser(null); setTab("profile"); };
 
   if (!user) return (

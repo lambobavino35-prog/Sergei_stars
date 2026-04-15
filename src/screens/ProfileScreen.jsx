@@ -36,19 +36,20 @@ export default function ProfileScreen({ st, setSt, fireBurst, showToast }) {
     showToast("PIN изменён! 🔐");
   };
 
-  const purchasedTiers = st.sergei.purchasedTiers || [0];
+  const claimedTiers = st.sergei.claimedTiers || st.sergei.purchasedTiers || [0];
 
-  // Все купленные тиры — стандартные + кастомные
+  // Все полученные тиры — стандартные + кастомные
   const allPurchased = [
-    ...BADGE_TIERS.filter(t => purchasedTiers.includes(t.id)),
-    ...customTiers.filter(ct => purchasedTiers.includes(ct.id)),
+    ...BADGE_TIERS.filter(t => claimedTiers.includes(t.id)),
+    ...customTiers.filter(ct => claimedTiers.includes(ct.id)),
   ];
   const hasMultipleBadges = allPurchased.length > 1;
 
   const tier = st.sergei.badgeTier >= 100
     ? (customTiers.find(ct => ct.id === st.sergei.badgeTier) || BADGE_TIERS[0])
     : BADGE_TIERS[st.sergei.badgeTier] || BADGE_TIERS[0];
-  const nextTier = st.sergei.badgeTier < 5 ? BADGE_TIERS[st.sergei.badgeTier + 1] : null;
+  // Next tier = first BADGE_TIERS tier that hasn't been claimed yet
+  const nextTier = BADGE_TIERS.slice(1).find(t => !claimedTiers.includes(t.id)) || null;
   const progress = nextTier ? Math.min(100, (st.sergei.totalEarned / nextTier.cost) * 100) : 100;
 
   return (
