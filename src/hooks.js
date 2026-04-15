@@ -1,47 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { SAVE_KEY, INITIAL_STATE, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "./constants";
 
-// ══════════════════════════════════════════════════════════════
-//  PUSH NOTIFICATIONS
-// ══════════════════════════════════════════════════════════════
-
-export function requestNotificationPermission() {
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission();
-  }
-}
-
-export function sendNotification(title, body, icon = "/favicon.ico") {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try { new Notification(title, { body, icon }); } catch (e) { console.warn("Notification failed:", e); }
-}
-
-// ─── SERVICE WORKER ──────────────────────────────────────────
-// Регистрируем SW один раз при загрузке страницы.
-// SW работает независимо от статуса входа пользователя.
-export function registerNotificationSW() {
-  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
-  navigator.serviceWorker.register("/sw.js").catch((e) =>
-    console.warn("SW registration failed:", e)
-  );
-}
-
-// Отправляем SW команду проверить Supabase на новые уведомления.
-// Credentials передаём с каждым вызовом — SW stateless между сессиями.
-export function triggerSWNotificationCheck() {
-  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
-  const msg = {
-    type: "CHECK_NOTIFICATIONS",
-    supabaseUrl: SUPABASE_URL,
-    supabaseKey: SUPABASE_KEY,
-  };
-  if (navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage(msg);
-  } else {
-    // На первом визите controller появляется только после активации SW
-    navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(msg));
-  }
-}
 
 // ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
@@ -123,20 +82,6 @@ async function sbDelete(table, filter) {
 // ══════════════════════════════════════════════════════════════
 //  SYNC — каждая сущность в своей таблице, нет конфликтов
 // ══════════════════════════════════════════════════════════════
-
-// Вставляет уведомление в Supabase — доставка через pull на устройстве Sergei.
-// В локальном режиме (без Supabase) сразу показывает браузерное уведомление.
-export async function insertNotification(title, body) {
-  if (!SUPABASE_ENABLED) {
-    sendNotification(title, body);
-    return;
-  }
-  try {
-    await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
-  } catch (e) {
-    console.error("insertNotification error:", e);
-  }
-}
 
 export function useSupabaseSync(st, setSt, user) {
   const [syncStatus, setSyncStatus] = useState("online");
@@ -258,12 +203,6 @@ export function useSupabaseSync(st, setSt, user) {
         saveState(next);
         return next;
       });
-
-      // Уведомления — отдельный fetch, не ломает pull если таблица не создана.
-      // Delivery через SW: показывает системное уведомление даже при свёрнутой вкладке.
-      try {
-        triggerSWNotificationCheck();
-      } catch (_) {}
 
       setSyncStatus("online");
     } catch (e) {
