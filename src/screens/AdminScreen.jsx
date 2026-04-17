@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, insertNotification, sendNotification, requestNotificationPermission, triggerSWNotificationCheck } from "../hooks";
-import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "../constants";
+import { deletePending, approveTask, insertNotification, sendNotification, requestNotificationPermission, triggerSWNotificationCheck, sendToTelegram } from "../hooks";
+import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
@@ -16,6 +16,9 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [actionComment, setActionComment] = useState("");
   const [notifTitle, setNotifTitle] = useState("📢 Уведомление");
   const [notifBody, setNotifBody] = useState("");
+  const [tgSubscribers, setTgSubscribers] = useState([]);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgOnlyText, setTgOnlyText] = useState("");
 
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");
   const getTaskById = id => st.tasks.find(t => t.id === id);
@@ -198,6 +201,59 @@ export default function AdminScreen({ st, setSt, showToast }) {
     }
   };
 
+  // ─── TELEGRAM: подгрузка подписчиков ────────────────────────
+  const loadTgSubscribers = async () => {
+    if (!SUPABASE_ENABLED) return;
+    setTgLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/sq_telegram_subscribers?select=*&order=subscribed_at.asc`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      if (res.ok) {
+        setTgSubscribers(await res.json());
+      }
+    } catch (e) {
+      console.error("loadTgSubscribers:", e);
+    } finally {
+      setTgLoading(false);
+    }
+  };
+
+  const removeTgSubscriber = async (chatId) => {
+    if (!SUPABASE_ENABLED) return;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/sq_telegram_subscribers?chat_id=eq.${chatId}`, {
+        method: "DELETE",
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      if (res.ok) {
+        setTgSubscribers(prev => prev.filter(s => s.chat_id !== chatId));
+        showToast("Подписчик удалён", "ok");
+      }
+    } catch (e) {
+      showToast("Ошибка удаления", "err");
+    }
+  };
+
+  const sendTelegramOnly = async () => {
+    if (!tgOnlyText.trim()) return showToast("Введи текст", "err");
+    try {
+      await sendToTelegram(tgOnlyText.trim());
+      setTgOnlyText("");
+      showToast("📱 Отправлено в Telegram!", "ok");
+    } catch (e) {
+      showToast("Ошибка отправки", "err");
+    }
+  };
+
+  // Автоподгрузка подписчиков при открытии вкладки notif
+  useEffect(() => {
+    if (tab === "notif" && TELEGRAM_ENABLED) {
+      loadTgSubscribers();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   const iField = (label, val, onChange, opts = {}) => (
     <div style={{ marginBottom: 8 }}>
       {label && <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>}
@@ -352,7 +408,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
             ["tiers", "🔮 Тиры"],
             ["balance", "💰 Баланс"],
             ["log", "📜 Лог" + (reactionsCount ? ` (${reactionsCount}💬)` : "")],
-            ["notif", "🔔 Уведомления"],
+            ["notif", "🔔 Уведомления" + (TELEGRAM_ENABLED ? " 📱" : "")],
           ];
         })().map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flexShrink: 0, padding: "9px 14px", border: tab === id ? "none" : "1px solid #1e3a5f", borderRadius: 12, background: tab === id ? "#fbbf24" : "#0f172a", color: tab === id ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>{label}</button>
@@ -806,6 +862,94 @@ export default function AdminScreen({ st, setSt, showToast }) {
             Отправить
           </button>
           </div>
+
+          {/* ── Telegram ── */}
+          <div style={{ background: "linear-gradient(135deg,#0c1a2f,#020617)", border: "1px solid #38bdf855", borderRadius: 20, padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#38bdf8", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                📱 Telegram
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 800, color: TELEGRAM_ENABLED ? "#4ade80" : "#f87171" }}>
+                {TELEGRAM_ENABLED ? "✅ Активен" : "❌ Не настроен"}
+              </span>
+            </div>
+
+            {!TELEGRAM_ENABLED && (
+              <div style={{ padding: "10px 12px", background: "#1c1407", border: "1px solid #78350f", borderRadius: 10, fontSize: 12, color: "#fbbf24", fontWeight: 700 }}>
+                Добавь токен бота в <code style={{ background: "#000", padding: "1px 5px", borderRadius: 4 }}>src/constants.js</code> → <code style={{ background: "#000", padding: "1px 5px", borderRadius: 4 }}>TELEGRAM_BOT_TOKEN</code>. Подробности в README.md.
+              </div>
+            )}
+
+            {TELEGRAM_ENABLED && (
+              <>
+                {/* Список подписчиков */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                      Подписчики ({tgSubscribers.length})
+                    </div>
+                    <button
+                      onClick={loadTgSubscribers}
+                      disabled={tgLoading}
+                      style={{ padding: "4px 10px", background: "#0c1e3a", color: "#38bdf8", border: "1px solid #1e3a5f", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: tgLoading ? "wait" : "pointer" }}
+                    >
+                      {tgLoading ? "⏳" : "🔄"} Обновить
+                    </button>
+                  </div>
+                  {tgSubscribers.length === 0 ? (
+                    <div style={{ color: "#475569", fontSize: 12, fontWeight: 700, fontStyle: "italic", padding: "8px 0" }}>
+                      Пока никто не подписан. Напишите боту <code style={{ background: "#000", padding: "1px 5px", borderRadius: 4 }}>/start</code>.
+                    </div>
+                  ) : (
+                    tgSubscribers.map(s => (
+                      <div key={s.chat_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #0f172a" }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f5f9" }}>
+                            {s.first_name || "—"}
+                            {s.username && <span style={{ color: "#64748b", fontWeight: 600 }}> · @{s.username}</span>}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#334155", fontWeight: 700 }}>
+                            chat_id: {s.chat_id} · {new Date(s.subscribed_at).toLocaleDateString("ru-RU")}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeTgSubscriber(s.chat_id)}
+                          style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}
+                          title="Удалить подписчика"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Отправить ТОЛЬКО в Telegram */}
+                <div style={{ borderTop: "1px solid #1e3a5f", paddingTop: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>
+                    Отправить только в Telegram
+                  </div>
+                  <div style={{ fontSize: 11, color: "#475569", fontWeight: 700, marginBottom: 6, fontStyle: "italic" }}>
+                    Без создания браузерного уведомления. Поддерживается HTML: &lt;b&gt;, &lt;i&gt;, &lt;code&gt;.
+                  </div>
+                  <textarea
+                    value={tgOnlyText}
+                    onChange={e => setTgOnlyText(e.target.value)}
+                    placeholder="Сообщение..."
+                    rows={3}
+                    style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none", resize: "vertical", marginBottom: 8 }}
+                  />
+                  <button
+                    onClick={sendTelegramOnly}
+                    style={{ width: "100%", padding: 12, background: "#0ea5e9", color: "#020617", border: "none", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+                  >
+                    📱 Отправить в Telegram
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
         </div>
         );
       })()}

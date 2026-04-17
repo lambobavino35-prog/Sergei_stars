@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BADGE_TIERS } from "../constants";
+import { sendToTelegram } from "../hooks";
 import Badge from "../components/Badge";
 
 export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
@@ -30,6 +31,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["🎉","✨","🎁","💫","⭐"], rect.left + rect.width / 2, rect.top);
     showToast(`🎁 «${reward.title}» получена!`, "ok");
+    sendToTelegram(`🎁 <b>${st.sergei.name}</b> купил награду «${reward.title}» (−${reward.cost} 💰)`);
   };
 
   const buyChocolate = (e) => {
@@ -47,6 +49,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["🍫","✨","🎉"], rect.left + rect.width / 2, rect.top);
     showToast("🍫 Батончик получен!", "ok");
+    sendToTelegram(`🍫 <b>${st.sergei.name}</b> купил батончик (−${price} 💰)`);
   };
 
   const buyStar = (e) => {
@@ -64,6 +67,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["⭐","🌟","✨","💫"], rect.left + rect.width / 2, rect.top);
     showToast("⭐️ Звезда получена!", "ok");
+    sendToTelegram(`⭐️ <b>${st.sergei.name}</b> купил звезду (−${price} 💰)`);
   };
 
   const claimTier = (tier, e) => {
@@ -80,6 +84,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(tier.particles || ["✨","💫","🌟"], rect.left + rect.width / 2, rect.top);
     showToast("🔥 Новый тир получен!", "ok");
+    sendToTelegram(`🏆 <b>${st.sergei.name}</b> получил тир «${tier.name}»`);
   };
 
   const buyCustomTier = (tier, e) => {
@@ -99,6 +104,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(tier.particles || ["✨","💫","🌟"], rect.left + rect.width / 2, rect.top);
     showToast(`🔥 Новый тир «${tier.name}»!`, "ok");
+    sendToTelegram(`🏆 <b>${st.sergei.name}</b> купил тир «${tier.name}» (−${tier.cost} 💰)`);
   };
 
   const groupedRewards = purchasedRewards.reduce((acc, r) => {

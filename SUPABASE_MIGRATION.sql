@@ -158,3 +158,39 @@ alter publication supabase_realtime add table sq_custom_tiers;
 alter publication supabase_realtime add table sq_purchased_rewards;
 alter publication supabase_realtime add table sq_completed_tasks;
 alter publication supabase_realtime add table sq_notifications;
+
+-- ══════════════════════════════════════════════════════════════
+--  MIGRATION v4 — TELEGRAM ПОДПИСЧИКИ
+--  Таблица для хранения chat_id всех, кто написал боту /start.
+-- ══════════════════════════════════════════════════════════════
+
+create table if not exists sq_telegram_subscribers (
+  chat_id bigint primary key,
+  username text,
+  first_name text,
+  subscribed_at timestamptz not null default now()
+);
+
+alter table sq_telegram_subscribers enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'sq_telegram_subscribers'
+      and policyname = 'anon_all'
+  ) then
+    create policy "anon_all" on sq_telegram_subscribers for all to anon using (true) with check (true);
+  end if;
+end $$;
+
+-- Добавляем в realtime (на случай если захочется видеть подписчиков в реальном времени)
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table sq_telegram_subscribers;
+  exception
+    when duplicate_object then null;
+  end;
+end $$;

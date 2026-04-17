@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import TaskCard from "../components/TaskCard";
-import { deletePending, submitPending } from "../hooks";
+import { deletePending, submitPending, sendToTelegram } from "../hooks";
 
 function formatDeadlineLeft(deadlineAt) {
   const ms = deadlineAt - Date.now();
@@ -27,6 +27,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
   useEffect(() => {
     const checkDeadlines = () => {
       const now = Date.now();
+      let newlyFailedTitles = [];
       setSt(s => {
         const currentFailed = new Set(s.sergei.failedTasks || []);
         const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
@@ -36,6 +37,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
           if (task.deadlineAt && !currentFailed.has(task.id) && !currentCompleted.has(task.id) && now > task.deadlineAt) {
             newFailed.push(task.id);
             newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
+            newlyFailedTitles.push(task.title);
           }
         }
         if (newFailed.length === 0) return s;
@@ -48,6 +50,10 @@ export default function TasksScreen({ st, setSt, showToast }) {
           },
         };
       });
+      // Отправляем в Telegram после обновления стейта
+      for (const title of newlyFailedTitles) {
+        sendToTelegram(`💀 Задание «${title}» провалено — дедлайн истёк`);
+      }
     };
     checkDeadlines();
     const id = setInterval(checkDeadlines, 60000);
@@ -76,6 +82,8 @@ export default function TasksScreen({ st, setSt, showToast }) {
     // Пишем напрямую в Supabase, не ждём debounced push —
     // иначе pull может перезаписать локальный стейт раньше, чем push успеет отправить запись
     await submitPending(entry);
+    // Telegram
+    sendToTelegram(`📤 <b>${st.sergei.name}</b> отправил задание «${task.title}» на проверку`);
   };
 
   const cancelTask = async (task) => {
@@ -91,6 +99,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
     }));
     showToast(`↩️ «${task.title}» отменено`, "info");
     setSelectedTask(null);
+    sendToTelegram(`↩️ <b>${st.sergei.name}</b> отменил задание «${task.title}»`);
   };
 
   const TaskRow = ({ task, isFailed }) => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { SAVE_KEY, INITIAL_STATE, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "./constants";
+import { SAVE_KEY, INITIAL_STATE, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_ENABLED } from "./constants";
 
 // ══════════════════════════════════════════════════════════════
 //  SUPABASE CLIENT (singleton)
@@ -148,17 +148,75 @@ async function sbPatch(table, filter, data) {
 //  Нет polling каждые 8 секунд — трафик и нагрузка падают на порядок.
 // ══════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════
+//  TELEGRAM
+//  Отправка сообщений всем подписчикам бота.
+//  Список подписчиков ведётся Edge Function'ом /telegram-webhook.
+// ══════════════════════════════════════════════════════════════
+
+// Получаем всех подписчиков из Supabase
+async function getTelegramSubscribers() {
+  if (!SUPABASE_ENABLED) return [];
+  try {
+    return await sbGet("sq_telegram_subscribers", "?select=chat_id,first_name,username");
+  } catch (e) {
+    console.error("getTelegramSubscribers error:", e);
+    return [];
+  }
+}
+
+// Отправляет текст всем подписчикам бота.
+// Не падает если Telegram не настроен или нет подписчиков.
+export async function sendToTelegram(text) {
+  if (!TELEGRAM_ENABLED) return;
+  const subscribers = await getTelegramSubscribers();
+  if (!subscribers.length) return;
+
+  const results = await Promise.allSettled(
+    subscribers.map(s =>
+      fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: s.chat_id,
+          text,
+          parse_mode: "HTML",
+        }),
+      }).then(r => {
+        if (!r.ok) {
+          // 403 = юзер заблокировал бота, удаляем его из БД тихо
+          if (r.status === 403) {
+            sbDelete("sq_telegram_subscribers", `chat_id=eq.${s.chat_id}`).catch(() => {});
+          }
+          return { ok: false, chatId: s.chat_id, status: r.status };
+        }
+        return { ok: true, chatId: s.chat_id };
+      })
+    )
+  );
+
+  return results;
+}
+
 // Вставляет уведомление в Supabase — доставка через pull на устройстве Sergei.
 // В локальном режиме (без Supabase) сразу показывает браузерное уведомление.
+// Параллельно отправляет то же сообщение всем подписчикам Telegram-бота.
 export async function insertNotification(title, body) {
+  // Browser-push (как раньше)
   if (!SUPABASE_ENABLED) {
     sendNotification(title, body);
-    return;
+  } else {
+    try {
+      await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
+    } catch (e) {
+      console.error("insertNotification error:", e);
+    }
   }
-  try {
-    await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
-  } catch (e) {
-    console.error("insertNotification error:", e);
+
+  // Telegram — fire-and-forget, не ждём ответа, чтобы не тормозить UI
+  if (TELEGRAM_ENABLED) {
+    const text = `<b>${title}</b>\n${body}`;
+    sendToTelegram(text).catch(e => console.error("Telegram send error:", e));
   }
 }
 

@@ -77,3 +77,10 @@ export const OWN_ACTION_TYPES = ["submit", "cancel", "buy", "tier"];
 export const SUPABASE_URL = "https://hfwjzcdiftywljshmtgo.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_bsb0R3iK_GjLr_3NbT8ypg_oJ26Fml4";
 export const SUPABASE_ENABLED = SUPABASE_URL !== "https://YOUR_PROJECT.supabase.co";
+
+// ═══════════════════════════════════════════════
+//  TELEGRAM BOT — токен от @BotFather
+//  Подставь свой токен после создания бота (см. README).
+// ═══════════════════════════════════════════════
+export const TELEGRAM_BOT_TOKEN = "8619586526:AAHsrdpj4i1ODP32P-BjHOFhjmBd3xkFO8E";
+export const TELEGRAM_ENABLED = TELEGRAM_BOT_TOKEN !== "YOUR_BOT_TOKEN_HERE" && TELEGRAM_BOT_TOKEN.length > 0;

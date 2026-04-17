@@ -1,112 +1,201 @@
-# Sergei Quest — v2 (Vite + Supabase Realtime + Reactions)
+# Sergei Quest — v3 (Vite + Realtime + Reactions + Telegram)
 
-## 🚀 Что изменилось
+## 🚀 Что нового в v3
 
-### 1. Миграция с CRA на Vite
-- Dev-сервер стартует за ~0.5 сек вместо 10-15 сек
-- Hot reload мгновенный
-- Vercel автоматически определит Vite-проект — никаких настроек менять не нужно
+**Telegram-бот для push-уведомлений на заблокированный экран.**
+- Любой пишет боту `/start` и начинает получать все уведомления — работает даже при выключенном приложении
+- 11 событий автоматически уходят всем подписчикам:
+  - **Админ (5):** одобрение, отклонение, новое задание, ручное начисление монет, произвольное сообщение
+  - **Сергей (6):** отправка на проверку, отмена, покупка награды, шоколада, звезды, получение/покупка тира, провал дедлайна
+- Ручная отправка из админки: вкладка "🔔 Уведомления" → блок "📱 Telegram"
+- Список подписчиков с возможностью удалить любого
 
-### 2. Supabase Realtime вместо polling
-- Было: запрос каждые 8 секунд на 6 таблиц = ~2700 запросов в час
-- Стало: одно WebSocket-соединение, обновления прилетают мгновенно
-- Egress-трафик падает на порядок → вписываемся в бесплатный Supabase
+---
 
-### 3. Реакции от Сергея
-- На каждую запись в логе (кроме его собственных действий) он может поставить эмодзи: 🐷 🔥 🎉 ❤️ 👍🏻 👎🏻
-- Повторный тап по реакции — убирает её
-- Админ видит реакции в новой вкладке "📜 Лог" с отдельной секцией "💬 Реакции Сергея"
-- Счётчик в табе показывает сколько реакций накопилось
+## 📋 Настройка Telegram с нуля
 
-## 📋 Что нужно сделать для запуска
+### Шаг 1. Создать бота
 
-### Шаг 1: Применить миграцию БД
+1. В Telegram открой **@BotFather** → `/newbot`
+2. Придумай имя (отображаемое) и username (должен заканчиваться на `bot`, например `sergei_quest_bot`)
+3. Получишь **токен** вида `123456789:AAEhBP0av5g...` — **сохрани**
 
-Открой Supabase → SQL Editor и выполни файл `SUPABASE_MIGRATION.sql`.
+### Шаг 2. Вставить токен в код
 
-Там в самом конце (секция "MIGRATION v3") добавились:
-- Поле `reaction` в `sq_log`
-- Включение Realtime для всех таблиц через `alter publication supabase_realtime add table ...`
+В `src/constants.js` замени:
+```js
+export const TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE";
+```
+на свой токен. Это нужно для **отправки** сообщений из приложения.
 
-**Важно:** без этой миграции Realtime работать не будет.
+### Шаг 3. Применить SQL-миграцию v4
 
-Альтернатива через UI: Database → Replication → включить тумблеры для всех таблиц `sq_*`.
+В Supabase SQL Editor выполни блок `MIGRATION v4` из `SUPABASE_MIGRATION.sql`. Создастся таблица `sq_telegram_subscribers`.
 
-### Шаг 2: Локально
+### Шаг 4. Задеплоить Edge Function
 
+Функция нужна для **приёма** команд от Telegram (`/start`, `/stop`).
+
+**4.1** Установить Supabase CLI (если ещё нет):
+```bash
+npm install -g supabase
+# или на Mac: brew install supabase/tap/supabase
+```
+
+**4.2** Залогиниться и связать проект:
+```bash
+supabase login
+
+cd путь/до/sergei-stars-vite
+supabase link --project-ref hfwjzcdiftywljshmtgo
+```
+(ID проекта найдёшь в Supabase → Settings → General → Reference ID)
+
+**4.3** Прописать секреты функции:
+```bash
+supabase secrets set TELEGRAM_BOT_TOKEN=123456789:AAEhBP0av5g...
+
+# SERVICE_ROLE_KEY: Supabase → Settings → API → service_role key (это НЕ тот же ключ что anon)
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=eyJhbGci...
+```
+
+**4.4** Задеплоить:
+```bash
+supabase functions deploy telegram-webhook --no-verify-jwt
+```
+
+Флаг `--no-verify-jwt` обязателен — Telegram не знает про JWT.
+
+После деплоя получишь URL вида:
+```
+https://hfwjzcdiftywljshmtgo.supabase.co/functions/v1/telegram-webhook
+```
+
+### Шаг 5. Подключить webhook к Telegram
+
+Одна команда в терминале (подставь свой токен и URL из предыдущего шага):
+```bash
+curl "https://api.telegram.org/bot<ТВОЙ_ТОКЕН>/setWebhook?url=<URL_ФУНКЦИИ>"
+```
+
+Должен ответить `{"ok":true,"result":true,"description":"Webhook was set"}`.
+
+Проверить:
+```bash
+curl "https://api.telegram.org/bot<ТВОЙ_ТОКЕН>/getWebhookInfo"
+```
+
+### Шаг 6. Подписаться
+
+1. Найди бота в Telegram по username
+2. Напиши `/start` — бот ответит `✅ Подписка активна!`
+3. Попроси Сергея сделать то же самое
+
+### Шаг 7. Проверить
+
+1. Зайди в приложение админом → "🔔 Уведомления"
+2. Внизу блок "📱 Telegram" → должен быть "✅ Активен" и твой username в списке
+3. Отправь тест через "Отправить в Telegram" — должно прийти мгновенно
+
+---
+
+## 🔧 Команды бота
+
+- `/start` — подписаться
+- `/stop` — отписаться
+- `/whoami` — узнать свой chat_id
+- `/help` — список команд
+
+## 🛠 Что и когда уходит в Telegram
+
+| Событие | Текст |
+|---|---|
+| Админ одобрил задание | `✅ Задание одобрено! «название» +N 💰` |
+| Админ отклонил | `❌ Задание отклонено «название»` |
+| Админ добавил задание | `📋 Новое задание! «название» — N 💰` |
+| Админ начислил монеты | `💰 Начисление! +N монет` |
+| Админ отправил сообщение | любой текст |
+| Сергей отправил задание | `📤 Sergei отправил задание «X» на проверку` |
+| Сергей отменил | `↩️ Sergei отменил задание «X»` |
+| Сергей купил награду | `🎁 Sergei купил награду «X» (−N 💰)` |
+| Сергей купил шоколад | `🍫 Sergei купил батончик (−N 💰)` |
+| Сергей купил звезду | `⭐️ Sergei купил звезду (−N 💰)` |
+| Сергей получил тир | `🏆 Sergei получил/купил тир «X»` |
+| Дедлайн истёк | `💀 Задание «X» провалено — дедлайн истёк` |
+
+## ⚠️ Если что-то не работает
+
+**Webhook не принимает `/start`:**
+- Проверь: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `url` должен быть правильный, `pending_update_count` = 0
+- Логи функции: Supabase Dashboard → Edge Functions → telegram-webhook → Logs
+- Секреты установлены? `supabase secrets list` — должны быть `TELEGRAM_BOT_TOKEN` и `SUPABASE_SERVICE_ROLE_KEY`
+
+**Сообщения не приходят подписчикам:**
+- В админке "📱 Telegram" видны подписчики? Если да — проблема в токене в `constants.js`
+- Если подписчиков нет — проблема в webhook (см. выше)
+
+**Сменить бота:**
+- `@BotFather` → `/revoke` → старый токен отозвать
+- Повторить шаги 1, 2, 4.3, 5
+- Старые подписчики останутся в БД → удали их через админку
+
+---
+
+## 🚀 Напоминалка про v2
+
+- **Vite** вместо CRA — dev-сервер за 0.5 сек
+- **Supabase Realtime** вместо polling — трафик падает на порядок
+- **Реакции Сергея** на записи лога (🐷 🔥 🎉 ❤️ 👍🏻 👎🏻), видны во вкладке "📜 Лог" админки
+
+---
+
+## 📋 Установка с нуля
+
+### 1. Применить все миграции БД
+Supabase SQL Editor → выполни `SUPABASE_MIGRATION.sql` целиком (идемпотентный).
+
+### 2. Локально
 ```bash
 npm install
-npm run dev        # dev-сервер на http://localhost:3000
-npm run build      # сборка в папку build/
-npm run preview    # локально посмотреть собранный билд
+npm run dev        # http://localhost:3000
+npm run build
 ```
 
-### Шаг 3: Deploy на Vercel
+### 3. Deploy на Vercel
+Ничего настраивать не нужно — Vercel сам подхватит Vite. Output directory = `build`.
 
-Vercel сам всё подхватит. Ничего настраивать не нужно — он видит `vite.config.js` и `package.json` с `vite` в зависимостях, и выбирает правильный фреймворк автоматически.
+Если в настройках проекта стоит "Framework: Create React App" — поменяй на "Vite" или "Other".
 
-Единственное: в настройках проекта на Vercel, если там было прописано вручную "Framework: Create React App" — поменяй на "Vite" (или оставь "Other", Vercel сам разберётся по package.json). Output directory оставь `build` — я специально это настроил, чтобы путь не менялся.
+### 4. Настроить Telegram (см. раздел выше)
 
-## 🗂 Структура
+---
+
+## 🗂 Структура проекта
 
 ```
-├── index.html              ← точка входа Vite (в корне, не в public/)
-├── vite.config.js          ← конфиг Vite
-├── package.json            ← vite вместо react-scripts
-├── SUPABASE_MIGRATION.sql  ← SQL с миграциями v1/v2/v3
+├── index.html
+├── vite.config.js
+├── package.json
+├── SUPABASE_MIGRATION.sql           ← v1 + v2 + v3 + v4
+├── supabase/
+│   └── functions/
+│       └── telegram-webhook/
+│           └── index.ts             ← Edge Function (приём /start)
 ├── public/
-│   ├── favicon.ico, logo192/512.png, manifest.json
-│   ├── sw.js               ← Service Worker для push
+│   ├── favicon.ico, logo*.png, manifest.json
+│   ├── sw.js                        ← Service Worker (браузерные push)
 │   └── robots.txt
 └── src/
-    ├── main.jsx            ← раньше был index.js (CRA)
-    ├── App.jsx             ← раньше был App.js
-    ├── constants.js        ← + REACTION_EMOJIS, OWN_ACTION_TYPES
-    ├── hooks.js            ← переписан на Supabase Realtime
-    ├── components/
-    │   ├── Badge.jsx
-    │   ├── BurstLayer.jsx
-    │   ├── TaskCard.jsx
-    │   └── Toast.jsx
+    ├── main.jsx
+    ├── App.jsx
+    ├── constants.js                 ← TELEGRAM_BOT_TOKEN сюда
+    ├── hooks.js                     ← Realtime + sendToTelegram
+    ├── components/  (Badge, BurstLayer, TaskCard, Toast)
     └── screens/
         ├── LoginScreen.jsx
         ├── ProfileScreen.jsx
-        ├── TasksScreen.jsx
-        ├── LogScreen.jsx   ← переписан: + UI реакций
-        ├── RewardScreen.jsx
-        └── AdminScreen.jsx ← + вкладка "📜 Лог"
+        ├── TasksScreen.jsx          ← Telegram при submit/cancel/fail
+        ├── LogScreen.jsx            ← UI реакций
+        ├── RewardScreen.jsx         ← Telegram при всех покупках
+        └── AdminScreen.jsx          ← вкладка "Лог" + секция "Telegram"
 ```
-
-## 🔧 Как работают реакции
-
-**Сергей (LogScreen):**
-- Для записей с типом `earn`, `reject`, `manual`, `fail`, `tier` (не его собственные действия) видит кнопку `+ 😀`
-- Тап → раскрывается палитра из 6 эмодзи
-- Тап по эмодзи → реакция сохраняется в `sq_log.reaction`, точечный PATCH в БД (без ожидания debounced push)
-- Тап по уже поставленной реакции → снимает её
-
-**Админ (AdminScreen → вкладка "📜 Лог"):**
-- Сверху блок "💬 Реакции Сергея" — только записи, на которые он отреагировал
-- Ниже полный лог, записи с реакцией подсвечены голубой рамкой
-- В табе счётчик `(N💬)` — сколько всего реакций от Сергея
-
-**Какие события считаются "его собственными" (реагировать нельзя):**
-```js
-OWN_ACTION_TYPES = ["submit", "cancel", "buy", "tier"]
-```
-— то есть когда Сергей сам что-то сделал: отправил задание, отменил, купил награду/валюту, получил тир. На всё остальное (одобрения/отказы от тебя, начисления, провалы по дедлайну) — можно.
-
-## ⚙️ Если что-то пойдёт не так
-
-**Реалтайм не работает:**
-- Проверь в Supabase Dashboard: Database → Replication — включены ли все таблицы `sq_*`
-- Открой консоль браузера: должно быть `SUBSCRIBED` в статусе; если `CHANNEL_ERROR` — не применена миграция v3
-
-**После деплоя Vercel "не та сборка":**
-- Зайди в Settings → Build & Development Settings
-- Build Command: `npm run build` (или Vercel сам)
-- Output Directory: `build`
-- Install Command: `npm install`
-
-**Хочу откатиться:**
-- Старый код по-прежнему лежит на GitHub, предыдущий коммит работает как раньше.
