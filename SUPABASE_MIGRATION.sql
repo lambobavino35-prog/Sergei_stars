@@ -138,3 +138,23 @@ create table if not exists sq_notifications (
 );
 alter table sq_notifications enable row level security;
 create policy "anon_all" on sq_notifications for all to anon using (true) with check (true);
+
+-- ══════════════════════════════════════════════════════════════
+--  MIGRATION v3 — РЕАКЦИИ ОТ СЕРГЕЯ + REALTIME
+--  (запусти если уже применил v1 и v2)
+-- ══════════════════════════════════════════════════════════════
+
+-- Добавляем поле для реакции-эмодзи на записи в логе
+alter table sq_log add column if not exists reaction text default null;
+
+-- Включаем Realtime для всех таблиц (подписка на изменения)
+-- Это заменяет polling каждые 8 секунд — мгновенные обновления через WebSocket
+alter publication supabase_realtime add table sq_profile;
+alter publication supabase_realtime add table sq_tasks;
+alter publication supabase_realtime add table sq_rewards;
+alter publication supabase_realtime add table sq_pending;
+alter publication supabase_realtime add table sq_log;
+alter publication supabase_realtime add table sq_custom_tiers;
+alter publication supabase_realtime add table sq_purchased_rewards;
+alter publication supabase_realtime add table sq_completed_tasks;
+alter publication supabase_realtime add table sq_notifications;

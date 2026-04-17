@@ -1,6 +1,60 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { SAVE_KEY, INITIAL_STATE, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "./constants";
 
+// ══════════════════════════════════════════════════════════════
+//  SUPABASE CLIENT (singleton)
+//  Используется как для Realtime-подписок, так и для чтения/записи.
+// ══════════════════════════════════════════════════════════════
+export const supabase = SUPABASE_ENABLED
+  ? createClient(SUPABASE_URL, SUPABASE_KEY, {
+      realtime: {
+        params: { eventsPerSecond: 10 },
+      },
+    })
+  : null;
+
+// ══════════════════════════════════════════════════════════════
+//  PUSH NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════
+
+export function requestNotificationPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+export function sendNotification(title, body, icon = "/favicon.ico") {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try { new Notification(title, { body, icon }); } catch (e) { console.warn("Notification failed:", e); }
+}
+
+// ─── SERVICE WORKER ──────────────────────────────────────────
+// Регистрируем SW один раз при загрузке страницы.
+// SW работает независимо от статуса входа пользователя.
+export function registerNotificationSW() {
+  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
+  navigator.serviceWorker.register("/sw.js").catch((e) =>
+    console.warn("SW registration failed:", e)
+  );
+}
+
+// Отправляем SW команду проверить Supabase на новые уведомления.
+// Credentials передаём с каждым вызовом — SW stateless между сессиями.
+export function triggerSWNotificationCheck() {
+  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
+  const msg = {
+    type: "CHECK_NOTIFICATIONS",
+    supabaseUrl: SUPABASE_URL,
+    supabaseKey: SUPABASE_KEY,
+  };
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage(msg);
+  } else {
+    // На первом визите controller появляется только после активации SW
+    navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(msg));
+  }
+}
 
 // ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
@@ -79,27 +133,142 @@ async function sbDelete(table, filter) {
   if (!res.ok) throw new Error(`DELETE ${table} failed: ${res.status}`);
 }
 
+async function sbPatch(table, filter, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+    method: "PATCH",
+    headers: makeHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`PATCH ${table} failed: ${res.status}`);
+}
+
 // ══════════════════════════════════════════════════════════════
-//  SYNC — каждая сущность в своей таблице, нет конфликтов
+//  SYNC — Realtime-подписки вместо polling
+//  Каждая сущность в своей таблице, подписка на изменения через WebSocket.
+//  Нет polling каждые 8 секунд — трафик и нагрузка падают на порядок.
 // ══════════════════════════════════════════════════════════════
 
-export function useSupabaseSync(st, setSt) {
+// Вставляет уведомление в Supabase — доставка через pull на устройстве Sergei.
+// В локальном режиме (без Supabase) сразу показывает браузерное уведомление.
+export async function insertNotification(title, body) {
+  if (!SUPABASE_ENABLED) {
+    sendNotification(title, body);
+    return;
+  }
+  try {
+    await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
+  } catch (e) {
+    console.error("insertNotification error:", e);
+  }
+}
+
+// ─── Мапперы БД → локальный стейт ────────────────────────────
+
+function mapProfileRow(p) {
+  return {
+    name:           p.name,
+    pin:            p.pin,
+    coins:          p.coins,
+    chocolates:     p.chocolates,
+    stars:          p.stars,
+    badgeTier:      p.badge_tier,
+    purchasedTiers: p.purchased_tiers || [0],
+    claimedTiers:   p.claimed_tiers || p.purchased_tiers || [0],
+    failedTasks:    p.failed_tasks || [],
+    totalEarned:    p.total_earned,
+  };
+}
+
+function mapTaskRow(t) {
+  return {
+    id:          t.id,
+    title:       t.title,
+    description: t.description || "",
+    reward:      t.reward,
+    emoji:       t.emoji,
+    category:    t.category,
+    difficulty:  t.difficulty,
+    deadlineAt:  t.deadline_at ? new Date(t.deadline_at).getTime() : null,
+  };
+}
+
+function mapRewardRow(r) {
+  return {
+    id:        r.id,
+    title:     r.title,
+    cost:      r.cost,
+    emoji:     r.emoji,
+    category:  r.category,
+    oneTime:   r.one_time,
+    createdAt: new Date(r.created_at).getTime(),
+  };
+}
+
+function mapPendingRow(p) {
+  return {
+    id:          p.id,
+    taskId:      p.task_id,
+    userId:      "sergei",
+    submittedAt: new Date(p.submitted_at).getTime(),
+  };
+}
+
+function mapLogRow(l) {
+  return {
+    id:       l.id,
+    type:     l.type,
+    text:     l.text,
+    amount:   l.amount,
+    ts:       new Date(l.ts).getTime(),
+    comment:  l.comment || null,
+    reaction: l.reaction || null,
+  };
+}
+
+function mapCustomTierRow(ct) {
+  return {
+    id:        ct.id,
+    name:      ct.name,
+    cost:      ct.cost,
+    emoji:     ct.emoji,
+    modelUrl:  ct.model_url,
+    particles: ct.particles || ["✨","💫","🌟"],
+    label:     ct.label || "Кастомный",
+  };
+}
+
+function mapPurchasedRewardRow(r) {
+  return {
+    id:       r.id,
+    rewardId: r.reward_id,
+    title:    r.title,
+    emoji:    r.emoji,
+    boughtAt: new Date(r.bought_at).getTime(),
+  };
+}
+
+function mapCompletedTaskRow(c) {
+  return {
+    id:     c.id,
+    taskId: c.task_id,
+    date:   new Date(c.completed_at).getTime(),
+  };
+}
+
+export function useSupabaseSync(st, setSt, user) {
   const [syncStatus, setSyncStatus] = useState("online");
   const stRef = useRef(st);
   const initialized = useRef(false);
-  const pulling = useRef(false);
   const skipPush = useRef(false);
   const pushTimer = useRef(null);
 
-
   useEffect(() => { stRef.current = st; }, [st]);
 
-  // ─── PULL ─────────────────────────────────────────────────────────────
-  // Читаем каждую таблицу отдельно и собираем состояние.
-  // Нет единого timestamp → нет конфликтов "кто новее".
-  const pull = useCallback(async () => {
-    if (!SUPABASE_ENABLED || pulling.current) return;
-    pulling.current = true;
+  // ─── INITIAL PULL ────────────────────────────────────────────
+  // Один раз при загрузке — забираем всё состояние из БД.
+  // Дальше — обновления идут через Realtime-подписки.
+  const initialPull = useCallback(async () => {
+    if (!SUPABASE_ENABLED) return;
     try {
       const [
         profiles,
@@ -129,93 +298,191 @@ export function useSupabaseSync(st, setSt) {
           ...local,
           sergei: {
             ...local.sergei,
-            name:             p.name,
-            pin:              p.pin,
-            coins:            p.coins,
-            chocolates:       p.chocolates,
-            stars:            p.stars,
-            badgeTier:        p.badge_tier,
-            purchasedTiers:   p.purchased_tiers || [0],
-            claimedTiers:     p.claimed_tiers || p.purchased_tiers || [0],
-            failedTasks:      p.failed_tasks || [],
-            totalEarned:      p.total_earned,
-            log:              log.map(l => ({
-              id:      l.id,
-              type:    l.type,
-              text:    l.text,
-              amount:  l.amount,
-              ts:      new Date(l.ts).getTime(),
-              comment: l.comment || null,
-            })),
-            completedTasks:   completedTasks.map(c => ({
-              id:     c.id,
-              taskId: c.task_id,
-              date:   new Date(c.completed_at).getTime(),
-            })),
-            purchasedRewards: purchasedRewards.map(r => ({
-              id:       r.id,
-              rewardId: r.reward_id,
-              title:    r.title,
-              emoji:    r.emoji,
-              boughtAt: new Date(r.bought_at).getTime(),
-            })),
+            ...mapProfileRow(p),
+            log:              log.map(mapLogRow),
+            completedTasks:   completedTasks.map(mapCompletedTaskRow),
+            purchasedRewards: purchasedRewards.map(mapPurchasedRewardRow),
           },
-          admin:      { pin: p.admin_pin },
-          tasks:      tasks.map(t => ({
-            id:          t.id,
-            title:       t.title,
-            description: t.description || "",
-            reward:      t.reward,
-            emoji:       t.emoji,
-            category:    t.category,
-            difficulty:  t.difficulty,
-            deadlineAt:  t.deadline_at ? new Date(t.deadline_at).getTime() : null,
-          })),
-          rewards:    rewards.map(r => ({
-            id:        r.id,
-            title:     r.title,
-            cost:      r.cost,
-            emoji:     r.emoji,
-            category:  r.category,
-            oneTime:   r.one_time,
-            createdAt: new Date(r.created_at).getTime(),
-          })),
-          pendingTasks: pending.map(p2 => ({
-            id:          p2.id,
-            taskId:      p2.task_id,
-            userId:      "sergei",
-            submittedAt: new Date(p2.submitted_at).getTime(),
-          })),
-          customTiers: customTiers.map(ct => ({
-            id:        ct.id,
-            name:      ct.name,
-            cost:      ct.cost,
-            emoji:     ct.emoji,
-            modelUrl:  ct.model_url,
-            particles: ct.particles || ["✨","💫","🌟"],
-            label:     ct.label || "Кастомный",
-          })),
+          admin:        { pin: p.admin_pin },
+          tasks:        tasks.map(mapTaskRow),
+          rewards:      rewards.map(mapRewardRow),
+          pendingTasks: pending.map(mapPendingRow),
+          customTiers:  customTiers.map(mapCustomTierRow),
           currencyShop: p.currency_shop || local.currencyShop,
         };
-
         if (JSON.stringify(local) === JSON.stringify(next)) return local;
         skipPush.current = true;
         saveState(next);
         return next;
       });
 
+      try { triggerSWNotificationCheck(); } catch (_) {}
       setSyncStatus("online");
     } catch (e) {
-      console.error("Pull error:", e);
+      console.error("Initial pull error:", e);
       setSyncStatus("error");
-    } finally {
-      pulling.current = false;
     }
   }, [setSt]);
 
-  // ─── PUSH ─────────────────────────────────────────────────────────────
-  // Каждая сущность пишется в свою таблицу независимо.
-  // Никаких конфликтов — монеты и задания не мешают друг другу.
+  // ─── REALTIME SUBSCRIPTIONS ──────────────────────────────────
+  // Подписываемся на изменения каждой таблицы.
+  // Каждое событие INSERT/UPDATE/DELETE → точечное обновление локального стейта.
+  useEffect(() => {
+    if (!SUPABASE_ENABLED || !supabase) return;
+
+    // Помощник: применяем изменение к массиву по id (insert/update/delete)
+    const applyArrayChange = (arr, payload, mapFn, idField = "id") => {
+      const newRow = payload.new && Object.keys(payload.new).length ? mapFn(payload.new) : null;
+      const oldId  = payload.old?.[idField] ?? payload.old?.id;
+      if (payload.eventType === "DELETE") {
+        return arr.filter(x => x[idField] !== oldId && x.id !== oldId);
+      }
+      if (payload.eventType === "INSERT") {
+        if (arr.some(x => x.id === newRow.id)) return arr; // уже есть
+        return [newRow, ...arr];
+      }
+      if (payload.eventType === "UPDATE") {
+        return arr.map(x => x.id === newRow.id ? { ...x, ...newRow } : x);
+      }
+      return arr;
+    };
+
+    const channel = supabase.channel("sergei-quest-realtime");
+
+    // Профиль — одна строка, просто перезаписываем
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_profile" }, (payload) => {
+      if (!payload.new || !payload.new.id) return;
+      const p = payload.new;
+      setSt(local => {
+        skipPush.current = true;
+        const next = {
+          ...local,
+          sergei: { ...local.sergei, ...mapProfileRow(p) },
+          admin:  { pin: p.admin_pin },
+          currencyShop: p.currency_shop || local.currencyShop,
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Tasks
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_tasks" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const next = { ...local, tasks: applyArrayChange(local.tasks, payload, mapTaskRow) };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Rewards
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_rewards" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const next = { ...local, rewards: applyArrayChange(local.rewards, payload, mapRewardRow) };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Pending
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_pending" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const next = {
+          ...local,
+          pendingTasks: applyArrayChange(local.pendingTasks || [], payload, mapPendingRow),
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Log
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_log" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const currentLog = local.sergei.log || [];
+        const updatedLog = applyArrayChange(currentLog, payload, mapLogRow).slice(0, 100);
+        const next = {
+          ...local,
+          sergei: { ...local.sergei, log: updatedLog },
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Custom tiers
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_custom_tiers" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const next = {
+          ...local,
+          customTiers: applyArrayChange(local.customTiers || [], payload, mapCustomTierRow),
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Purchased rewards
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_purchased_rewards" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const current = local.sergei.purchasedRewards || [];
+        const next = {
+          ...local,
+          sergei: {
+            ...local.sergei,
+            purchasedRewards: applyArrayChange(current, payload, mapPurchasedRewardRow),
+          },
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Completed tasks
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_completed_tasks" }, (payload) => {
+      setSt(local => {
+        skipPush.current = true;
+        const current = local.sergei.completedTasks || [];
+        const next = {
+          ...local,
+          sergei: {
+            ...local.sergei,
+            completedTasks: applyArrayChange(current, payload, mapCompletedTaskRow),
+          },
+        };
+        saveState(next);
+        return next;
+      });
+    });
+
+    // Notifications — триггерим SW, чтобы он забрал и показал системное уведомление
+    channel.on("postgres_changes", { event: "INSERT", schema: "public", table: "sq_notifications" }, () => {
+      try { triggerSWNotificationCheck(); } catch (_) {}
+    });
+
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        setSyncStatus("online");
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setSyncStatus("error");
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [setSt]);
+
+  // ─── PUSH ─────────────────────────────────────────────────────
+  // Debounced push после изменений — дождаться, и записать всё целиком.
+  // Это та же логика, что была — просто теперь работает на изменениях,
+  // которые приходят локально (от действий юзера), а не от pull.
   const push = useCallback(async () => {
     if (!SUPABASE_ENABLED) return;
     const s = stRef.current;
@@ -239,7 +506,7 @@ export function useSupabaseSync(st, setSt) {
           currency_shop:   s.currencyShop,
           updated_at:      new Date().toISOString(),
         }),
-        // Задания — upsert всего списка
+        // Задания
         s.tasks.length > 0 && sbUpsert("sq_tasks",
           s.tasks.map(t => ({
             id:          t.id,
@@ -252,7 +519,7 @@ export function useSupabaseSync(st, setSt) {
             deadline_at: t.deadlineAt ? new Date(t.deadlineAt).toISOString() : null,
           }))
         ),
-        // Награды — upsert всего списка
+        // Награды
         s.rewards.length > 0 && sbUpsert("sq_rewards",
           s.rewards.map(r => ({
             id:        r.id,
@@ -263,7 +530,7 @@ export function useSupabaseSync(st, setSt) {
             one_time:  r.oneTime || false,
           }))
         ),
-        // Pending tasks — upsert (удаление при approve/reject — см. ниже)
+        // Pending
         (s.pendingTasks || []).length > 0 && sbUpsert("sq_pending",
           s.pendingTasks.map(p => ({
             id:           p.id,
@@ -271,18 +538,19 @@ export function useSupabaseSync(st, setSt) {
             submitted_at: new Date(p.submittedAt).toISOString(),
           }))
         ),
-        // Лог — upsert (только добавляем, не удаляем)
+        // Лог
         s.sergei.log.length > 0 && sbUpsert("sq_log",
           s.sergei.log.map(l => ({
-            id:      l.id,
-            type:    l.type,
-            text:    l.text,
-            amount:  l.amount || 0,
-            ts:      new Date(l.ts).toISOString(),
-            comment: l.comment || null,
+            id:       l.id,
+            type:     l.type,
+            text:     l.text,
+            amount:   l.amount || 0,
+            ts:       new Date(l.ts).toISOString(),
+            comment:  l.comment || null,
+            reaction: l.reaction || null,
           }))
         ),
-        // Удаляем из sq_log записи старше тех, что уже не входят в срез 100
+        // Удаляем старые записи лога за пределами среза 100
         s.sergei.log.length > 0 && (async () => {
           const oldest = s.sergei.log[s.sergei.log.length - 1];
           if (oldest) {
@@ -304,7 +572,7 @@ export function useSupabaseSync(st, setSt) {
         // Купленные награды
         (s.sergei.purchasedRewards || []).length > 0 && sbUpsert("sq_purchased_rewards",
           s.sergei.purchasedRewards
-            .filter(r => r.id && r.rewardId)   // skip malformed entries without proper IDs
+            .filter(r => r.id && r.rewardId)
             .map(r => ({
               id:        r.id,
               reward_id: r.rewardId,
@@ -316,7 +584,7 @@ export function useSupabaseSync(st, setSt) {
         // Выполненные задания
         (s.sergei.completedTasks || []).length > 0 && sbUpsert("sq_completed_tasks",
           s.sergei.completedTasks.map((c) => ({
-            id:           c.id,   // always a proper UUID — set in approve()
+            id:           c.id,
             task_id:      c.taskId,
             completed_at: new Date(c.date || Date.now()).toISOString(),
           }))
@@ -332,25 +600,17 @@ export function useSupabaseSync(st, setSt) {
 
   // Начальный pull
   useEffect(() => {
-    pull().finally(() => { initialized.current = true; });
+    initialPull().finally(() => { initialized.current = true; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Pull каждые 8 секунд
-  useEffect(() => {
-    if (!SUPABASE_ENABLED) return;
-    const id = setInterval(pull, 8000);
-    return () => clearInterval(id);
-  }, [pull]);
-
-  // Debounced push после изменений (400мс)
+  // Debounced push после изменений
   useEffect(() => {
     if (!SUPABASE_ENABLED) return;
     if (!initialized.current) return;
     if (skipPush.current) { skipPush.current = false; return; }
     clearTimeout(pushTimer.current);
-    // Ждём завершения pull перед push — если pull ещё идёт, откладываем дольше
-    const delay = pulling.current ? 1200 : 400;
-    pushTimer.current = setTimeout(push, delay);
+    pushTimer.current = setTimeout(push, 400);
     return () => clearTimeout(pushTimer.current);
   }, [st, push]);
 
@@ -358,9 +618,9 @@ export function useSupabaseSync(st, setSt) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  Вспомогательный хук: удаление pending task из Supabase
-//  (reject / cancel — запись нужно физически удалить)
+//  Вспомогательные функции: точечные операции с Supabase
 // ══════════════════════════════════════════════════════════════
+
 export async function submitPending(entry) {
   if (!SUPABASE_ENABLED) return;
   try {
@@ -387,26 +647,30 @@ export async function deletePending(id) {
 //  approveTask — атомарная операция одобрения:
 //  1. СНАЧАЛА пишем completed task в sq_completed_tasks
 //  2. ПОТОМ удаляем из sq_pending
-//
-//  Это исключает race condition: если другое устройство делает
-//  pull между удалением pending и записью completed — задание
-//  больше не появится как "доступное для выполнения".
 // ══════════════════════════════════════════════════════════════
 export async function approveTask(pendingId, completedTask) {
-  if (!SUPABASE_ENABLED) {
-    return;
-  }
+  if (!SUPABASE_ENABLED) return;
   try {
-    // Шаг 1: записываем completed task — теперь он виден всем устройствам
     await sbUpsert("sq_completed_tasks", [{
       id:           completedTask.id,
       task_id:      completedTask.taskId,
       completed_at: new Date(completedTask.date).toISOString(),
     }]);
-    // Шаг 2: только после этого удаляем pending
     await sbDelete("sq_pending", `id=eq.${pendingId}`);
   } catch (e) {
     console.error("approveTask error:", e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Реакция на запись лога — обновляет одно поле в sq_log
+// ══════════════════════════════════════════════════════════════
+export async function setLogReaction(logId, reaction) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbPatch("sq_log", `id=eq.${logId}`, { reaction });
+  } catch (e) {
+    console.error("setLogReaction error:", e);
   }
 }
 

@@ -7,6 +7,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const [previewTier, setPreviewTier] = useState(null);
   const coins = st.sergei.coins;
   const claimedTiers = st.sergei.claimedTiers || [0];
+  const purchasedTiers = claimedTiers; // backwards compat alias
   const totalEarned = st.sergei.totalEarned || 0;
   const purchasedRewards = st.sergei.purchasedRewards || [];
   const customTiers = st.customTiers || [];
@@ -311,8 +312,8 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
             Object.entries(groupedRewards).map(([cat, rewards]) => (
               <div key={cat} style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>{cat}</div>
-                {rewards.slice().reverse().map((r) => (
-                  <div key={r.id} style={{ background: "linear-gradient(135deg,#031a10,#042a18)", border: "1px solid #134e2a", borderRadius: 16, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, animation: "fadeUp .3s ease both" }}>
+                {rewards.slice().reverse().map((r, i) => (
+                  <div key={i} style={{ background: "linear-gradient(135deg,#031a10,#042a18)", border: "1px solid #134e2a", borderRadius: 16, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, animation: "fadeUp .3s ease both" }}>
                     <span style={{ fontSize: 28, flexShrink: 0 }}>{r.emoji}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 800, color: "#f1f5f9", fontSize: 14 }}>{r.title}</div>

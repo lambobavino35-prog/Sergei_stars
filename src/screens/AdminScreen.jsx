@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask } from "../hooks";
+import { deletePending, approveTask, insertNotification, sendNotification, requestNotificationPermission, triggerSWNotificationCheck } from "../hooks";
+import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
   const [tab, setTab] = useState("pending");
@@ -13,6 +14,9 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [previewTier, setPreviewTier] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
   const [actionComment, setActionComment] = useState("");
+  const [notifTitle, setNotifTitle] = useState("📢 Уведомление");
+  const [notifBody, setNotifBody] = useState("");
+
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");
   const getTaskById = id => st.tasks.find(t => t.id === id);
   const customTiers = st.customTiers || [];
@@ -41,6 +45,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ].slice(0, 100),
       },
     }));
+    insertNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
     showToast(`✅ Начислено ${task.reward} монет!`, "ok");
   };
 
@@ -59,6 +64,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         ].slice(0, 100),
       },
     }));
+    insertNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
     showToast("❌ Задание отклонено", "err");
   };
 
@@ -72,7 +78,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   const deleteReward = async (id) => {
     try {
-      const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
+      
       if (SUPABASE_ENABLED) {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/sq_rewards?id=eq.${id}`, {
           method: "DELETE",
@@ -98,12 +104,13 @@ export default function AdminScreen({ st, setSt, showToast }) {
     delete t.deadlineHours;
     setSt(s => ({ ...s, tasks: [...s.tasks, t] }));
     setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", deadlineHours: "" });
+    insertNotification("📋 Новое задание!", `«${t.title}» — ${t.reward} 💰`);
     showToast("📋 Задание добавлено!", "ok");
   };
 
   const deleteTask = async (id) => {
     try {
-      const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
+      
       if (SUPABASE_ENABLED) {
         const results = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/sq_tasks?id=eq.${id}`, {
@@ -134,6 +141,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     const n = parseInt(manualCoins);
     if (!n || n === 0) return showToast("Введи кол-во монет", "err");
     setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 100) } }));
+    if (n > 0) insertNotification("💰 Начисление!", `+${n} монет`);
     setManualCoins(""); showToast(`${n > 0 ? "+" : ""}${n} монет начислено`, "ok");
   };
 
@@ -170,7 +178,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   const deleteCustomTier = async (id) => {
     try {
-      const { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED } = await import("../constants");
+      
       if (SUPABASE_ENABLED) {
         await fetch(`${SUPABASE_URL}/rest/v1/sq_custom_tiers?id=eq.${id}`, {
           method: "DELETE",
@@ -179,6 +187,15 @@ export default function AdminScreen({ st, setSt, showToast }) {
       }
     } catch {}
     setSt(s => ({ ...s, customTiers: (s.customTiers || []).filter(x => x.id !== id) }));
+  };
+
+  const sendCustomNotification = async (title, body) => {
+    try {
+      await insertNotification(title, body);
+      showToast("🔔 Уведомление отправлено!", "ok");
+    } catch (e) {
+      showToast("Ошибка отправки уведомления", "err");
+    }
   };
 
   const iField = (label, val, onChange, opts = {}) => (
@@ -326,13 +343,18 @@ export default function AdminScreen({ st, setSt, showToast }) {
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto" }}>
-        {[
-          ["pending", "⏳ Проверка" + (pending.length ? ` (${pending.length})` : "")],
-          ["rewards", "🎁 Награды"],
-          ["tasks", "📋 Задания"],
-          ["tiers", "🔮 Тиры"],
-          ["balance", "💰 Баланс"],
-        ].map(([id, label]) => (
+        {(() => {
+          const reactionsCount = (st.sergei.log || []).filter(l => l.reaction).length;
+          return [
+            ["pending", "⏳ Проверка" + (pending.length ? ` (${pending.length})` : "")],
+            ["rewards", "🎁 Награды"],
+            ["tasks", "📋 Задания"],
+            ["tiers", "🔮 Тиры"],
+            ["balance", "💰 Баланс"],
+            ["log", "📜 Лог" + (reactionsCount ? ` (${reactionsCount}💬)` : "")],
+            ["notif", "🔔 Уведомления"],
+          ];
+        })().map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flexShrink: 0, padding: "9px 14px", border: tab === id ? "none" : "1px solid #1e3a5f", borderRadius: 12, background: tab === id ? "#fbbf24" : "#0f172a", color: tab === id ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>{label}</button>
         ))}
       </div>
@@ -597,6 +619,196 @@ export default function AdminScreen({ st, setSt, showToast }) {
         </div>
       )}
 
+      {/* ─── ЛОГ + РЕАКЦИИ СЕРГЕЯ ─── */}
+      {tab === "log" && (() => {
+        const log = st.sergei.log || [];
+        const withReactions = log.filter(l => l.reaction);
+        const formatDate = ts => {
+          const d = new Date(ts);
+          return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        };
+        const LogRow = ({ entry, highlighted }) => (
+          <div style={{
+            background: highlighted
+              ? "linear-gradient(135deg,#1c1438,#0c1e3a)"
+              : "linear-gradient(135deg,#0f172a,#020617)",
+            border: highlighted ? "1px solid #38bdf888" : "1px solid #1e3a5f",
+            borderRadius: 14,
+            padding: "12px 14px",
+            marginBottom: 8,
+            boxShadow: highlighted ? "0 0 12px #38bdf833" : "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: "#f1f5f9", fontSize: 14 }}>{entry.text}</div>
+                <div style={{ fontSize: 11, color: "#334155", fontWeight: 700, marginTop: 3 }}>{formatDate(entry.ts)}</div>
+                {entry.comment && (
+                  <div style={{ fontSize: 12, color: "#38bdf8", fontWeight: 700, marginTop: 4, fontStyle: "italic" }}>
+                    💬 {entry.comment}
+                  </div>
+                )}
+              </div>
+              {entry.amount != null && entry.amount !== 0 && (
+                <div style={{ color: entry.amount > 0 ? "#fbbf24" : "#f87171", fontWeight: 900, fontSize: 16, flexShrink: 0 }}>
+                  {entry.amount > 0 ? "+" : ""}{entry.amount} 💰
+                </div>
+              )}
+            </div>
+            {entry.reaction && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: "#38bdf8", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                  Реакция Сергея:
+                </span>
+                <div style={{
+                  background: "linear-gradient(135deg,#1e3a5f,#0c1e3a)",
+                  border: "1px solid #38bdf8aa",
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}>
+                  {entry.reaction}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+        return (
+          <div>
+            {/* Блок реакций */}
+            <div style={{ background: "linear-gradient(135deg,#0c1e3a,#020617)", border: "1px solid #38bdf855", borderRadius: 20, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#38bdf8", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".05em" }}>
+                💬 Реакции Сергея ({withReactions.length})
+              </div>
+              {withReactions.length === 0 ? (
+                <div style={{ color: "#475569", fontWeight: 700, fontSize: 13, textAlign: "center", padding: 16 }}>
+                  Пока никаких реакций
+                </div>
+              ) : (
+                withReactions.map(entry => <LogRow key={entry.id} entry={entry} highlighted />)
+              )}
+            </div>
+
+            {/* Полный лог */}
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10, letterSpacing: ".05em" }}>
+              📜 Вся история ({log.length})
+            </div>
+            {log.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#334155" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
+                <div style={{ fontWeight: 700 }}>История пуста</div>
+              </div>
+            ) : (
+              log.map(entry => <LogRow key={entry.id} entry={entry} highlighted={!!entry.reaction} />)
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ─── УВЕДОМЛЕНИЯ ─── */}
+      {tab === "notif" && (() => {
+        const perm = ("Notification" in window) ? Notification.permission : "unsupported";
+        const swActive = ("serviceWorker" in navigator) && !!navigator.serviceWorker.controller;
+        const permColor = perm === "granted" ? "#4ade80" : perm === "denied" ? "#f87171" : "#fbbf24";
+        const permLabel = perm === "granted" ? "✅ Разрешено" : perm === "denied" ? "❌ Запрещено (зайди в настройки браузера)" : perm === "unsupported" ? "⛔ Браузер не поддерживает" : "⏳ Не запрошено";
+        return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+          {/* ── Статус ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>📊 Статус</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Разрешение браузера</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: permColor }}>{permLabel}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Service Worker</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: swActive ? "#4ade80" : "#fbbf24" }}>{swActive ? "✅ Активен" : "⏳ Ещё не активен"}</span>
+              </div>
+            </div>
+            {perm === "denied" && (
+              <div style={{ marginTop: 10, padding: "10px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: 10, fontSize: 12, color: "#f87171", fontWeight: 700 }}>
+                Уведомления заблокированы. Открой настройки сайта в браузере (значок 🔒 слева от адреса) и разреши уведомления вручную.
+              </div>
+            )}
+            {perm === "default" && (
+              <button
+                onClick={() => requestNotificationPermission()}
+                style={{ marginTop: 10, width: "100%", padding: 11, background: "#0ea5e9", color: "#020617", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}
+              >
+                Запросить разрешение
+              </button>
+            )}
+          </div>
+
+          {/* ── Тест ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>🧪 Тест</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => {
+                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
+                  sendNotification("🔔 Прямой тест", "Если видишь это — разрешение работает!");
+                  showToast("Уведомление отправлено напрямую", "ok");
+                }}
+                style={{ padding: 12, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
+              >
+                🔔 Прямой тест (без Supabase)
+                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет что разрешение работает прямо сейчас</div>
+              </button>
+              <button
+                onClick={async () => {
+                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
+                  await insertNotification("📡 Тест через Supabase", "Если видишь это — вся цепочка работает!");
+                  triggerSWNotificationCheck();
+                  showToast("Запись в Supabase создана, SW уведомлён", "ok");
+                }}
+                style={{ padding: 12, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
+              >
+                📡 Тест через Supabase + SW
+                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет всю цепочку: Supabase → SW → уведомление</div>
+              </button>
+            </div>
+          </div>
+
+          {/* ── Отправить Sergei ── */}
+          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9", marginBottom: 14 }}>🔔 Отправить уведомление</div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Заголовок</div>
+            <input
+              type="text"
+              value={notifTitle}
+              onChange={e => setNotifTitle(e.target.value)}
+              placeholder="📢 Уведомление"
+              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }}
+            />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Текст</div>
+            <textarea
+              value={notifBody}
+              onChange={e => setNotifBody(e.target.value)}
+              placeholder="Текст уведомления..."
+              rows={4}
+              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none", resize: "vertical" }}
+            />
+          </div>
+          <button
+            onClick={() => {
+              if (!notifTitle.trim() || !notifBody.trim()) return showToast("Заполни заголовок и текст", "err");
+              sendCustomNotification(notifTitle.trim(), notifBody.trim());
+              setNotifBody("");
+            }}
+            style={{ width: "100%", padding: 14, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
+          >
+            Отправить
+          </button>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }

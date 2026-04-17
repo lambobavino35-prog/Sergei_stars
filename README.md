@@ -1,70 +1,112 @@
-# Getting Started with Create React App
+# Sergei Quest — v2 (Vite + Supabase Realtime + Reactions)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## 🚀 Что изменилось
 
-## Available Scripts
+### 1. Миграция с CRA на Vite
+- Dev-сервер стартует за ~0.5 сек вместо 10-15 сек
+- Hot reload мгновенный
+- Vercel автоматически определит Vite-проект — никаких настроек менять не нужно
 
-In the project directory, you can run:
+### 2. Supabase Realtime вместо polling
+- Было: запрос каждые 8 секунд на 6 таблиц = ~2700 запросов в час
+- Стало: одно WebSocket-соединение, обновления прилетают мгновенно
+- Egress-трафик падает на порядок → вписываемся в бесплатный Supabase
 
-### `npm start`
+### 3. Реакции от Сергея
+- На каждую запись в логе (кроме его собственных действий) он может поставить эмодзи: 🐷 🔥 🎉 ❤️ 👍🏻 👎🏻
+- Повторный тап по реакции — убирает её
+- Админ видит реакции в новой вкладке "📜 Лог" с отдельной секцией "💬 Реакции Сергея"
+- Счётчик в табе показывает сколько реакций накопилось
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## 📋 Что нужно сделать для запуска
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Шаг 1: Применить миграцию БД
 
-### `npm test`
+Открой Supabase → SQL Editor и выполни файл `SUPABASE_MIGRATION.sql`.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Там в самом конце (секция "MIGRATION v3") добавились:
+- Поле `reaction` в `sq_log`
+- Включение Realtime для всех таблиц через `alter publication supabase_realtime add table ...`
 
-### `npm run build`
+**Важно:** без этой миграции Realtime работать не будет.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Альтернатива через UI: Database → Replication → включить тумблеры для всех таблиц `sq_*`.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Шаг 2: Локально
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bash
+npm install
+npm run dev        # dev-сервер на http://localhost:3000
+npm run build      # сборка в папку build/
+npm run preview    # локально посмотреть собранный билд
+```
 
-### `npm run eject`
+### Шаг 3: Deploy на Vercel
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Vercel сам всё подхватит. Ничего настраивать не нужно — он видит `vite.config.js` и `package.json` с `vite` в зависимостях, и выбирает правильный фреймворк автоматически.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Единственное: в настройках проекта на Vercel, если там было прописано вручную "Framework: Create React App" — поменяй на "Vite" (или оставь "Other", Vercel сам разберётся по package.json). Output directory оставь `build` — я специально это настроил, чтобы путь не менялся.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## 🗂 Структура
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```
+├── index.html              ← точка входа Vite (в корне, не в public/)
+├── vite.config.js          ← конфиг Vite
+├── package.json            ← vite вместо react-scripts
+├── SUPABASE_MIGRATION.sql  ← SQL с миграциями v1/v2/v3
+├── public/
+│   ├── favicon.ico, logo192/512.png, manifest.json
+│   ├── sw.js               ← Service Worker для push
+│   └── robots.txt
+└── src/
+    ├── main.jsx            ← раньше был index.js (CRA)
+    ├── App.jsx             ← раньше был App.js
+    ├── constants.js        ← + REACTION_EMOJIS, OWN_ACTION_TYPES
+    ├── hooks.js            ← переписан на Supabase Realtime
+    ├── components/
+    │   ├── Badge.jsx
+    │   ├── BurstLayer.jsx
+    │   ├── TaskCard.jsx
+    │   └── Toast.jsx
+    └── screens/
+        ├── LoginScreen.jsx
+        ├── ProfileScreen.jsx
+        ├── TasksScreen.jsx
+        ├── LogScreen.jsx   ← переписан: + UI реакций
+        ├── RewardScreen.jsx
+        └── AdminScreen.jsx ← + вкладка "📜 Лог"
+```
 
-## Learn More
+## 🔧 Как работают реакции
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+**Сергей (LogScreen):**
+- Для записей с типом `earn`, `reject`, `manual`, `fail`, `tier` (не его собственные действия) видит кнопку `+ 😀`
+- Тап → раскрывается палитра из 6 эмодзи
+- Тап по эмодзи → реакция сохраняется в `sq_log.reaction`, точечный PATCH в БД (без ожидания debounced push)
+- Тап по уже поставленной реакции → снимает её
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+**Админ (AdminScreen → вкладка "📜 Лог"):**
+- Сверху блок "💬 Реакции Сергея" — только записи, на которые он отреагировал
+- Ниже полный лог, записи с реакцией подсвечены голубой рамкой
+- В табе счётчик `(N💬)` — сколько всего реакций от Сергея
 
-### Code Splitting
+**Какие события считаются "его собственными" (реагировать нельзя):**
+```js
+OWN_ACTION_TYPES = ["submit", "cancel", "buy", "tier"]
+```
+— то есть когда Сергей сам что-то сделал: отправил задание, отменил, купил награду/валюту, получил тир. На всё остальное (одобрения/отказы от тебя, начисления, провалы по дедлайну) — можно.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## ⚙️ Если что-то пойдёт не так
 
-### Analyzing the Bundle Size
+**Реалтайм не работает:**
+- Проверь в Supabase Dashboard: Database → Replication — включены ли все таблицы `sq_*`
+- Открой консоль браузера: должно быть `SUBSCRIBED` в статусе; если `CHANNEL_ERROR` — не применена миграция v3
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+**После деплоя Vercel "не та сборка":**
+- Зайди в Settings → Build & Development Settings
+- Build Command: `npm run build` (или Vercel сам)
+- Output Directory: `build`
+- Install Command: `npm install`
 
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+**Хочу откатиться:**
+- Старый код по-прежнему лежит на GitHub, предыдущий коммит работает как раньше.
