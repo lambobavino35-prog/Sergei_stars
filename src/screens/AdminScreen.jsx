@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, insertNotification, sendNotification, requestNotificationPermission, triggerSWNotificationCheck, sendToTelegram } from "../hooks";
+import { deletePending, approveTask, insertNotification, sendToTelegram } from "../hooks";
 import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
@@ -14,8 +14,6 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [previewTier, setPreviewTier] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
   const [actionComment, setActionComment] = useState("");
-  const [notifTitle, setNotifTitle] = useState("📢 Уведомление");
-  const [notifBody, setNotifBody] = useState("");
   const [tgSubscribers, setTgSubscribers] = useState([]);
   const [tgLoading, setTgLoading] = useState(false);
   const [tgOnlyText, setTgOnlyText] = useState("");
@@ -192,15 +190,6 @@ export default function AdminScreen({ st, setSt, showToast }) {
     setSt(s => ({ ...s, customTiers: (s.customTiers || []).filter(x => x.id !== id) }));
   };
 
-  const sendCustomNotification = async (title, body) => {
-    try {
-      await insertNotification(title, body);
-      showToast("🔔 Уведомление отправлено!", "ok");
-    } catch (e) {
-      showToast("Ошибка отправки уведомления", "err");
-    }
-  };
-
   // ─── TELEGRAM: подгрузка подписчиков ────────────────────────
   const loadTgSubscribers = async () => {
     if (!SUPABASE_ENABLED) return;
@@ -246,9 +235,9 @@ export default function AdminScreen({ st, setSt, showToast }) {
     }
   };
 
-  // Автоподгрузка подписчиков при открытии вкладки notif
+  // Автоподгрузка подписчиков при открытии вкладки telegram
   useEffect(() => {
-    if (tab === "notif" && TELEGRAM_ENABLED) {
+    if (tab === "telegram" && TELEGRAM_ENABLED) {
       loadTgSubscribers();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -408,7 +397,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
             ["tiers", "🔮 Тиры"],
             ["balance", "💰 Баланс"],
             ["log", "📜 Лог" + (reactionsCount ? ` (${reactionsCount}💬)` : "")],
-            ["notif", "🔔 Уведомления" + (TELEGRAM_ENABLED ? " 📱" : "")],
+            ["telegram", "📱 Telegram"],
           ];
         })().map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flexShrink: 0, padding: "9px 14px", border: tab === id ? "none" : "1px solid #1e3a5f", borderRadius: 12, background: tab === id ? "#fbbf24" : "#0f172a", color: tab === id ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>{label}</button>
@@ -762,106 +751,8 @@ export default function AdminScreen({ st, setSt, showToast }) {
       })()}
 
       {/* ─── УВЕДОМЛЕНИЯ ─── */}
-      {tab === "notif" && (() => {
-        const perm = ("Notification" in window) ? Notification.permission : "unsupported";
-        const swActive = ("serviceWorker" in navigator) && !!navigator.serviceWorker.controller;
-        const permColor = perm === "granted" ? "#4ade80" : perm === "denied" ? "#f87171" : "#fbbf24";
-        const permLabel = perm === "granted" ? "✅ Разрешено" : perm === "denied" ? "❌ Запрещено (зайди в настройки браузера)" : perm === "unsupported" ? "⛔ Браузер не поддерживает" : "⏳ Не запрошено";
-        return (
+      {tab === "telegram" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
-          {/* ── Статус ── */}
-          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>📊 Статус</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Разрешение браузера</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: permColor }}>{permLabel}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>Service Worker</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: swActive ? "#4ade80" : "#fbbf24" }}>{swActive ? "✅ Активен" : "⏳ Ещё не активен"}</span>
-              </div>
-            </div>
-            {perm === "denied" && (
-              <div style={{ marginTop: 10, padding: "10px 12px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: 10, fontSize: 12, color: "#f87171", fontWeight: 700 }}>
-                Уведомления заблокированы. Открой настройки сайта в браузере (значок 🔒 слева от адреса) и разреши уведомления вручную.
-              </div>
-            )}
-            {perm === "default" && (
-              <button
-                onClick={() => requestNotificationPermission()}
-                style={{ marginTop: 10, width: "100%", padding: 11, background: "#0ea5e9", color: "#020617", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}
-              >
-                Запросить разрешение
-              </button>
-            )}
-          </div>
-
-          {/* ── Тест ── */}
-          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 12, letterSpacing: ".05em" }}>🧪 Тест</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button
-                onClick={() => {
-                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
-                  sendNotification("🔔 Прямой тест", "Если видишь это — разрешение работает!");
-                  showToast("Уведомление отправлено напрямую", "ok");
-                }}
-                style={{ padding: 12, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
-              >
-                🔔 Прямой тест (без Supabase)
-                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет что разрешение работает прямо сейчас</div>
-              </button>
-              <button
-                onClick={async () => {
-                  if (perm !== "granted") return showToast("Сначала разреши уведомления", "err");
-                  await insertNotification("📡 Тест через Supabase", "Если видишь это — вся цепочка работает!");
-                  triggerSWNotificationCheck();
-                  showToast("Запись в Supabase создана, SW уведомлён", "ok");
-                }}
-                style={{ padding: 12, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: "pointer", textAlign: "left" }}
-              >
-                📡 Тест через Supabase + SW
-                <div style={{ fontSize: 11, fontWeight: 600, opacity: .75, marginTop: 2 }}>Проверяет всю цепочку: Supabase → SW → уведомление</div>
-              </button>
-            </div>
-          </div>
-
-          {/* ── Отправить Sergei ── */}
-          <div style={{ background: "linear-gradient(135deg,#0f172a,#020617)", border: "1px solid #1e3a5f", borderRadius: 20, padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9", marginBottom: 14 }}>🔔 Отправить уведомление</div>
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Заголовок</div>
-            <input
-              type="text"
-              value={notifTitle}
-              onChange={e => setNotifTitle(e.target.value)}
-              placeholder="📢 Уведомление"
-              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }}
-            />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Текст</div>
-            <textarea
-              value={notifBody}
-              onChange={e => setNotifBody(e.target.value)}
-              placeholder="Текст уведомления..."
-              rows={4}
-              style={{ width: "100%", padding: "11px 14px", background: "#07111f", border: "1px solid #1e3a5f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none", resize: "vertical" }}
-            />
-          </div>
-          <button
-            onClick={() => {
-              if (!notifTitle.trim() || !notifBody.trim()) return showToast("Заполни заголовок и текст", "err");
-              sendCustomNotification(notifTitle.trim(), notifBody.trim());
-              setNotifBody("");
-            }}
-            style={{ width: "100%", padding: 14, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, cursor: "pointer" }}
-          >
-            Отправить
-          </button>
-          </div>
 
           {/* ── Telegram ── */}
           <div style={{ background: "linear-gradient(135deg,#0c1a2f,#020617)", border: "1px solid #38bdf855", borderRadius: 20, padding: 16 }}>
@@ -951,8 +842,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
           </div>
 
         </div>
-        );
-      })()}
+      )}
     </div>
   );
 }

@@ -15,48 +15,6 @@ export const supabase = SUPABASE_ENABLED
   : null;
 
 // ══════════════════════════════════════════════════════════════
-//  PUSH NOTIFICATIONS
-// ══════════════════════════════════════════════════════════════
-
-export function requestNotificationPermission() {
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission();
-  }
-}
-
-export function sendNotification(title, body, icon = "/favicon.ico") {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try { new Notification(title, { body, icon }); } catch (e) { console.warn("Notification failed:", e); }
-}
-
-// ─── SERVICE WORKER ──────────────────────────────────────────
-// Регистрируем SW один раз при загрузке страницы.
-// SW работает независимо от статуса входа пользователя.
-export function registerNotificationSW() {
-  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
-  navigator.serviceWorker.register("/sw.js").catch((e) =>
-    console.warn("SW registration failed:", e)
-  );
-}
-
-// Отправляем SW команду проверить Supabase на новые уведомления.
-// Credentials передаём с каждым вызовом — SW stateless между сессиями.
-export function triggerSWNotificationCheck() {
-  if (!("serviceWorker" in navigator) || !SUPABASE_ENABLED) return;
-  const msg = {
-    type: "CHECK_NOTIFICATIONS",
-    supabaseUrl: SUPABASE_URL,
-    supabaseKey: SUPABASE_KEY,
-  };
-  if (navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage(msg);
-  } else {
-    // На первом визите controller появляется только после активации SW
-    navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(msg));
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
 // ══════════════════════════════════════════════════════════════
 
@@ -198,26 +156,14 @@ export async function sendToTelegram(text) {
   return results;
 }
 
-// Вставляет уведомление в Supabase — доставка через pull на устройстве Sergei.
-// В локальном режиме (без Supabase) сразу показывает браузерное уведомление.
-// Параллельно отправляет то же сообщение всем подписчикам Telegram-бота.
+// Отправляет уведомление всем подписчикам Telegram-бота.
+// Оставлено имя insertNotification для обратной совместимости со всеми
+// местами в коде, которые её вызывают. По сути — тонкая обёртка над sendToTelegram.
 export async function insertNotification(title, body) {
-  // Browser-push (как раньше)
-  if (!SUPABASE_ENABLED) {
-    sendNotification(title, body);
-  } else {
-    try {
-      await sbUpsert("sq_notifications", [{ id: crypto.randomUUID(), title, body, seen: false }]);
-    } catch (e) {
-      console.error("insertNotification error:", e);
-    }
-  }
-
-  // Telegram — fire-and-forget, не ждём ответа, чтобы не тормозить UI
-  if (TELEGRAM_ENABLED) {
-    const text = `<b>${title}</b>\n${body}`;
-    sendToTelegram(text).catch(e => console.error("Telegram send error:", e));
-  }
+  if (!TELEGRAM_ENABLED) return;
+  const text = `<b>${title}</b>\n${body}`;
+  // fire-and-forget — не ждём ответа, чтобы не тормозить UI
+  sendToTelegram(text).catch(e => console.error("Telegram send error:", e));
 }
 
 // ─── Мапперы БД → локальный стейт ────────────────────────────
@@ -374,7 +320,6 @@ export function useSupabaseSync(st, setSt, user) {
         return next;
       });
 
-      try { triggerSWNotificationCheck(); } catch (_) {}
       setSyncStatus("online");
     } catch (e) {
       console.error("Initial pull error:", e);
@@ -517,11 +462,6 @@ export function useSupabaseSync(st, setSt, user) {
         saveState(next);
         return next;
       });
-    });
-
-    // Notifications — триггерим SW, чтобы он забрал и показал системное уведомление
-    channel.on("postgres_changes", { event: "INSERT", schema: "public", table: "sq_notifications" }, () => {
-      try { triggerSWNotificationCheck(); } catch (_) {}
     });
 
     channel.subscribe((status) => {

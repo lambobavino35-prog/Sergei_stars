@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { NAV_ITEMS, SYNC_ICONS, SUPABASE_ENABLED } from "./constants";
-import { useSt, useSupabaseSync, useBurst, registerNotificationSW } from "./hooks";
+import { useSt, useSupabaseSync, useBurst } from "./hooks";
 import Toast from "./components/Toast";
 import BurstLayer from "./components/BurstLayer";
 import Badge from "./components/Badge";
@@ -38,10 +38,6 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bursts, fireBurst] = useBurst();
   const syncStatus = useSupabaseSync(st, setSt, user);
-
-  // Регистрируем Service Worker для push-уведомлений при загрузке страницы
-  // (до входа пользователя — SW работает независимо от PIN-аутентификации)
-  useEffect(() => { registerNotificationSW(); }, []);
 
   // Загружаем model-viewer для 3D значков
   useEffect(() => {
