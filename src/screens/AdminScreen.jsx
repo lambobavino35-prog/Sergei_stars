@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, rejectTask, insertNotification, sendToTelegram, isTelegramMuted, setTelegramMuted } from "../hooks";
+import { deletePending, approveTask, rejectTask, insertNotification, sendToTelegram, setTelegramMuted } from "../hooks";
 import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
@@ -17,15 +17,23 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [tgSubscribers, setTgSubscribers] = useState([]);
   const [tgLoading, setTgLoading] = useState(false);
   const [tgOnlyText, setTgOnlyText] = useState("");
-  // Ручной тумблер "заглушить Telegram" — когда админ тестирует,
-  // чтобы Сергей не получал кучу уведомлений.
-  const [tgMuted, setTgMuted] = useState(isTelegramMuted());
+  // Глобальный тумблер "заглушить Telegram" — состояние живёт в Supabase
+  // (sq_profile.telegram_muted) и синкается на все устройства через realtime,
+  // чтобы рассылку действительно блокировало, с какого бы клиента её ни дёрнули.
+  const tgMuted = !!st.telegramMuted;
 
-  const toggleTgMute = () => {
+  const toggleTgMute = async () => {
     const next = !tgMuted;
-    setTelegramMuted(next);
-    setTgMuted(next);
-    showToast(next ? "🔕 Telegram выключен" : "🔔 Telegram включён", "ok");
+    // Оптимистичное обновление локального стейта — тумблер реагирует мгновенно.
+    setSt(s => ({ ...s, telegramMuted: next }));
+    try {
+      await setTelegramMuted(next);
+      showToast(next ? "🔕 Telegram выключен" : "🔔 Telegram включён", "ok");
+    } catch {
+      // Откатываем если не получилось записать в Supabase.
+      setSt(s => ({ ...s, telegramMuted: !next }));
+      showToast("Ошибка: не удалось сохранить", "err");
+    }
   };
 
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");

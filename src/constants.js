@@ -51,14 +51,6 @@ export const INITIAL_STATE = {
 
 export const SAVE_KEY = "sergei_quest_v4";
 
-// ═══════════════════════════════════════════════
-//  TEST USER (изолированная песочница для тестов)
-//  Вход по PIN 7777 → отдельный localStorage,
-//  без Supabase-синка и без Telegram. Не влияет на Сергея.
-// ═══════════════════════════════════════════════
-export const TEST_PIN = "7777";
-export const TEST_SAVE_KEY = "sergei_quest_test_v4";
-
 export const NAV_ITEMS = [
   { id: "profile", emoji: "👤", label: "Профиль" },
   { id: "tasks",   emoji: "📋", label: "Задания" },
@@ -66,7 +58,7 @@ export const NAV_ITEMS = [
   { id: "rewards", emoji: "🎁", label: "Награды" },
 ];
 
-export const SYNC_ICONS = { online: "🟢", syncing: "🟡", error: "🔴", offline: "⚪" };
+export const SYNC_ICONS = { online: "🟢", syncing: "🟡", error: "🔴" };
 
 // ═══════════════════════════════════════════════
 //  РЕАКЦИИ СЕРГЕЯ

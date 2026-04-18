@@ -13,8 +13,8 @@ export default function LogScreen({ st, setSt, user }) {
   };
 
   // Может ли пользователь реагировать на эту запись?
-  // Только если user === 'sergei' (или 'test' в песочнице) И тип события — НЕ его собственное действие.
-  const canReact = (entry) => (user === "sergei" || user === "test") && !OWN_ACTION_TYPES.includes(entry.type);
+  // Только Сергей, и только если событие создано НЕ им самим.
+  const canReact = (entry) => user === "sergei" && !OWN_ACTION_TYPES.includes(entry.type);
 
   const handleReact = (entry, emoji) => {
     // Тумблер: если уже стоит эта же реакция — снимаем, иначе ставим
@@ -27,8 +27,7 @@ export default function LogScreen({ st, setSt, user }) {
       },
     }));
     // Пишем сразу в Supabase (точечный PATCH, без debounced push).
-    // Для тестового юзера Supabase выключен — setLogReaction просто no-op.
-    if (user !== "test") setLogReaction(entry.id, newReaction);
+    setLogReaction(entry.id, newReaction);
     setOpenPicker(null);
   };
 

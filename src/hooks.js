@@ -15,22 +15,12 @@ export const supabase = SUPABASE_ENABLED
   : null;
 
 // ══════════════════════════════════════════════════════════════
-//  SANDBOX MODE
-//  Когда включён — все записи в Supabase (pending, approve/reject,
-//  реакции, telegram) становятся no-op. Используется для тестового
-//  пользователя (PIN 7777), чтобы он не писал в боевую базу Сергея.
-// ══════════════════════════════════════════════════════════════
-let SANDBOX_MODE = false;
-export function setSandboxMode(on) { SANDBOX_MODE = !!on; }
-export function isSandboxMode() { return SANDBOX_MODE; }
-
-// ══════════════════════════════════════════════════════════════
 //  LOCAL STATE  (localStorage — быстрый UI без задержек)
 // ══════════════════════════════════════════════════════════════
 
-export function loadState(saveKey = SAVE_KEY) {
+export function loadState() {
   try {
-    const s = localStorage.getItem(saveKey);
+    const s = localStorage.getItem(SAVE_KEY);
     if (s) {
       const parsed = JSON.parse(s);
       return {
@@ -44,27 +34,16 @@ export function loadState(saveKey = SAVE_KEY) {
   return { ...INITIAL_STATE };
 }
 
-export function saveState(s, saveKey = SAVE_KEY) {
-  try { localStorage.setItem(saveKey, JSON.stringify(s)); } catch {}
+export function saveState(s) {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch {}
 }
 
-// saveKey передаётся из App.jsx: SAVE_KEY для Sergei/admin,
-// TEST_SAVE_KEY для тестового пользователя (PIN 7777).
-// При смене saveKey — перезагружаем стейт из соответствующего ключа.
-export function useSt(saveKey = SAVE_KEY) {
-  const [st, _setSt] = useState(() => loadState(saveKey));
-  const currentKeyRef = useRef(saveKey);
-
-  useEffect(() => {
-    if (currentKeyRef.current === saveKey) return;
-    currentKeyRef.current = saveKey;
-    _setSt(loadState(saveKey));
-  }, [saveKey]);
-
+export function useSt() {
+  const [st, _setSt] = useState(loadState);
   const setSt = useCallback((fn) => {
     _setSt(prev => {
       const next = typeof fn === "function" ? fn(prev) : { ...prev, ...fn };
-      saveState(next, currentKeyRef.current);
+      saveState(next);
       return next;
     });
   }, []);
@@ -134,22 +113,32 @@ async function sbPatch(table, filter, data) {
 // ══════════════════════════════════════════════════════════════
 
 // Ручной «мьют» рассылки — управляется админом (см. AdminScreen → Telegram).
-// Состояние хранится в localStorage, чтобы пережить перезагрузку вкладки.
-const TELEGRAM_MUTE_KEY = "sergei_quest_telegram_muted";
+// Состояние хранится в sq_profile.telegram_muted (Supabase), чтобы тумблер
+// действовал глобально для всех устройств, а не только там где его нажали.
+// Модуль-левел кэш обновляется при initialPull и при realtime-апдейте профиля,
+// чтобы sendToTelegram() мог синхронно отсечь отправку без лишнего GET.
+let _telegramMutedCache = false;
 
 export function isTelegramMuted() {
-  try {
-    return localStorage.getItem(TELEGRAM_MUTE_KEY) === "1";
-  } catch {
-    return false;
-  }
+  return _telegramMutedCache;
 }
 
-export function setTelegramMuted(muted) {
+// Вызывается из useSupabaseSync при pull/realtime — синкает серверное
+// значение в module-level кэш.
+export function applyTelegramMutedFromServer(value) {
+  _telegramMutedCache = !!value;
+}
+
+// Переключение — сразу патчим Supabase. Realtime-подписка вернёт UPDATE
+// событие и обновит st.telegramMuted у всех подключённых клиентов.
+export async function setTelegramMuted(muted) {
+  _telegramMutedCache = !!muted;
+  if (!SUPABASE_ENABLED) return;
   try {
-    if (muted) localStorage.setItem(TELEGRAM_MUTE_KEY, "1");
-    else localStorage.removeItem(TELEGRAM_MUTE_KEY);
-  } catch {}
+    await sbPatch("sq_profile", "id=eq.sergei", { telegram_muted: !!muted });
+  } catch (e) {
+    console.error("setTelegramMuted error:", e);
+  }
 }
 
 // Получаем всех подписчиков из Supabase
@@ -167,8 +156,7 @@ async function getTelegramSubscribers() {
 // Не падает если Telegram не настроен / нет подписчиков / включён мьют.
 export async function sendToTelegram(text) {
   if (!TELEGRAM_ENABLED) return;
-  if (isTelegramMuted()) return;
-  if (SANDBOX_MODE) return;
+  if (_telegramMutedCache) return;
   const subscribers = await getTelegramSubscribers();
   if (!subscribers.length) return;
 
@@ -223,6 +211,12 @@ function mapProfileRow(p) {
     failedTasks:    p.failed_tasks || [],
     totalEarned:    p.total_earned,
   };
+}
+
+// Читаем флаг мьюта из профиля — положим рядом со стейтом, но извлекаем
+// отдельно, чтобы не смешивать с полями Сергея (мьют — это админская настройка).
+function extractTelegramMuted(p) {
+  return !!p?.telegram_muted;
 }
 
 function mapTaskRow(t) {
@@ -308,10 +302,6 @@ export function useSupabaseSync(st, setSt, user) {
   const skipPush = useRef(false);
   const pushTimer = useRef(null);
 
-  // Тестовый пользователь (PIN 7777) работает в изолированной песочнице —
-  // никаких pull/push/realtime, чтобы не шуметь в Supabase Сергея.
-  const isTest = user === "test";
-
   useEffect(() => { stRef.current = st; }, [st]);
 
   // ─── INITIAL PULL ────────────────────────────────────────────
@@ -343,6 +333,9 @@ export function useSupabaseSync(st, setSt, user) {
       if (!profiles.length) { setSyncStatus("online"); return; }
 
       const p = profiles[0];
+      // Сразу подтягиваем мьют в module-level кэш, чтобы sendToTelegram
+      // уже в этой сессии мог блокировать рассылку корректно.
+      applyTelegramMutedFromServer(p.telegram_muted);
       setSt(local => {
         const next = {
           ...local,
@@ -353,12 +346,13 @@ export function useSupabaseSync(st, setSt, user) {
             completedTasks:   completedTasks.map(mapCompletedTaskRow),
             purchasedRewards: purchasedRewards.map(mapPurchasedRewardRow),
           },
-          admin:        { pin: p.admin_pin },
-          tasks:        tasks.map(mapTaskRow),
-          rewards:      rewards.map(mapRewardRow),
-          pendingTasks: pending.map(mapPendingRow),
-          customTiers:  customTiers.map(mapCustomTierRow),
-          currencyShop: p.currency_shop || local.currencyShop,
+          admin:          { pin: p.admin_pin },
+          tasks:          tasks.map(mapTaskRow),
+          rewards:        rewards.map(mapRewardRow),
+          pendingTasks:   pending.map(mapPendingRow),
+          customTiers:    customTiers.map(mapCustomTierRow),
+          currencyShop:   p.currency_shop || local.currencyShop,
+          telegramMuted:  extractTelegramMuted(p),
         };
         if (JSON.stringify(local) === JSON.stringify(next)) return local;
         skipPush.current = true;
@@ -378,7 +372,6 @@ export function useSupabaseSync(st, setSt, user) {
   // Каждое событие INSERT/UPDATE/DELETE → точечное обновление локального стейта.
   useEffect(() => {
     if (!SUPABASE_ENABLED || !supabase) return;
-    if (isTest) return;
 
     // Помощник: применяем изменение к массиву по id (insert/update/delete)
     const applyArrayChange = (arr, payload, mapFn, idField = "id") => {
@@ -403,13 +396,17 @@ export function useSupabaseSync(st, setSt, user) {
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_profile" }, (payload) => {
       if (!payload.new || !payload.new.id) return;
       const p = payload.new;
+      // Синкаем мьют немедленно — даже если ещё не дошло до setState,
+      // следующий sendToTelegram уже увидит свежее значение.
+      applyTelegramMutedFromServer(p.telegram_muted);
       setSt(local => {
         skipPush.current = true;
         const next = {
           ...local,
           sergei: { ...local.sergei, ...mapProfileRow(p) },
-          admin:  { pin: p.admin_pin },
-          currencyShop: p.currency_shop || local.currencyShop,
+          admin:          { pin: p.admin_pin },
+          currencyShop:   p.currency_shop || local.currencyShop,
+          telegramMuted:  extractTelegramMuted(p),
         };
         saveState(next);
         return next;
@@ -522,7 +519,7 @@ export function useSupabaseSync(st, setSt, user) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [setSt, isTest]);
+  }, [setSt]);
 
   // ─── PUSH ─────────────────────────────────────────────────────
   // Debounced push после изменений — дождаться, и записать всё целиком.
@@ -645,23 +642,21 @@ export function useSupabaseSync(st, setSt, user) {
 
   // Начальный pull
   useEffect(() => {
-    if (isTest) { initialized.current = true; return; }
     initialPull().finally(() => { initialized.current = true; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTest]);
+  }, []);
 
   // Debounced push после изменений
   useEffect(() => {
     if (!SUPABASE_ENABLED) return;
-    if (isTest) return;
     if (!initialized.current) return;
     if (skipPush.current) { skipPush.current = false; return; }
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(push, 400);
     return () => clearTimeout(pushTimer.current);
-  }, [st, push, isTest]);
+  }, [st, push]);
 
-  return isTest ? "offline" : syncStatus;
+  return syncStatus;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -669,7 +664,7 @@ export function useSupabaseSync(st, setSt, user) {
 // ══════════════════════════════════════════════════════════════
 
 export async function submitPending(entry) {
-  if (!SUPABASE_ENABLED || SANDBOX_MODE) return;
+  if (!SUPABASE_ENABLED) return;
   try {
     await sbUpsert("sq_pending", [{
       id:           entry.id,
@@ -682,7 +677,7 @@ export async function submitPending(entry) {
 }
 
 export async function deletePending(id) {
-  if (!SUPABASE_ENABLED || SANDBOX_MODE) return;
+  if (!SUPABASE_ENABLED) return;
   try {
     await sbDelete("sq_pending", `id=eq.${id}`);
   } catch (e) {
@@ -700,7 +695,7 @@ export async function deletePending(id) {
 //     появилась у Сергея сразу, не дожидаясь debounced-push.
 // ══════════════════════════════════════════════════════════════
 export async function approveTask(pendingId, completedTask, profileUpdates, logEntry) {
-  if (!SUPABASE_ENABLED || SANDBOX_MODE) return;
+  if (!SUPABASE_ENABLED) return;
   try {
     await sbUpsert("sq_completed_tasks", [{
       id:           completedTask.id,
@@ -729,7 +724,7 @@ export async function approveTask(pendingId, completedTask, profileUpdates, logE
 
 // Аналогично approveTask, но только для отклонения — патчит failed_tasks и пишет лог.
 export async function rejectTask(pendingId, profileUpdates, logEntry) {
-  if (!SUPABASE_ENABLED || SANDBOX_MODE) return;
+  if (!SUPABASE_ENABLED) return;
   try {
     if (profileUpdates) {
       await sbPatch("sq_profile", "id=eq.sergei", profileUpdates);
@@ -755,7 +750,7 @@ export async function rejectTask(pendingId, profileUpdates, logEntry) {
 //  Реакция на запись лога — обновляет одно поле в sq_log
 // ══════════════════════════════════════════════════════════════
 export async function setLogReaction(logId, reaction) {
-  if (!SUPABASE_ENABLED || SANDBOX_MODE) return;
+  if (!SUPABASE_ENABLED) return;
   try {
     await sbPatch("sq_log", `id=eq.${logId}`, { reaction });
   } catch (e) {
