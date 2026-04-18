@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { NAV_ITEMS, SYNC_ICONS, SUPABASE_ENABLED } from "./constants";
-import { useSt, useSupabaseSync, useBurst } from "./hooks";
+import { NAV_ITEMS, SYNC_ICONS, SUPABASE_ENABLED, SAVE_KEY, TEST_SAVE_KEY } from "./constants";
+import { useSt, useSupabaseSync, useBurst, setSandboxMode } from "./hooks";
 import Toast from "./components/Toast";
 import BurstLayer from "./components/BurstLayer";
 import Badge from "./components/Badge";
@@ -32,8 +32,11 @@ const CSS = `
 `;
 
 export default function App() {
-  const [st, setSt] = useSt();
   const [user, setUser] = useState(null);
+  // Тестовый пользователь (PIN 7777) хранится в отдельном localStorage,
+  // чтобы не трогать боевое состояние Сергея.
+  const saveKey = user === "test" ? TEST_SAVE_KEY : SAVE_KEY;
+  const [st, setSt] = useSt(saveKey);
   const [tab, setTab] = useState("profile");
   const [toast, setToast] = useState(null);
   const [bursts, fireBurst] = useBurst();
@@ -48,6 +51,13 @@ export default function App() {
     script.src = "https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js";
     document.head.appendChild(script);
   }, []);
+
+  // Включаем/выключаем режим песочницы для тестового пользователя (PIN 7777).
+  // В режиме песочницы Supabase-запись и Telegram-рассылка становятся no-op,
+  // чтобы тестирование не влияло на боевые данные Сергея.
+  useEffect(() => {
+    setSandboxMode(user === "test");
+  }, [user]);
 
   const showToast = useCallback((msg, type = "ok") => {
     setToast({ msg, type });
@@ -65,6 +75,13 @@ export default function App() {
   );
 
   const customTiers = st.customTiers || [];
+  const isSergeiLike = user === "sergei" || user === "test";
+  // Роль показывается в заголовке для разных пользователей
+  const headerTitle = user === "admin"
+    ? "Admin"
+    : user === "test"
+      ? `${st.sergei.name} (TEST)`
+      : st.sergei.name;
 
   return (
     <>
@@ -76,16 +93,19 @@ export default function App() {
         {/* Header */}
         <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(2,6,23,.92)", backdropFilter: "blur(24px)", borderBottom: "1px solid #1e3a5f22", padding: "12px 16px", paddingTop: "calc(12px + env(safe-area-inset-top))", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {user === "sergei" ? (
+            {isSergeiLike ? (
               <Badge tier={st.sergei.badgeTier} size={36} customTiers={customTiers} />
             ) : (
               <span style={{ fontSize: 28 }}>🔐</span>
             )}
             <div>
-              <div style={{ fontFamily: "'Baloo 2',sans-serif", fontWeight: 900, fontSize: 14, color: "#f1f5f9", lineHeight: 1 }}>
-                {user === "sergei" ? st.sergei.name : "Admin"}
+              <div style={{ fontFamily: "'Baloo 2',sans-serif", fontWeight: 900, fontSize: 14, color: "#f1f5f9", lineHeight: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                {headerTitle}
+                {user === "test" && (
+                  <span style={{ fontSize: 9, fontWeight: 900, color: "#020617", background: "#fbbf24", padding: "2px 6px", borderRadius: 6, letterSpacing: ".05em" }}>SANDBOX</span>
+                )}
               </div>
-              {user === "sergei" && (
+              {isSergeiLike && (
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: "#fbbf24" }}>💰 {st.sergei.coins}</span>
                   <span style={{ fontSize: 11, fontWeight: 800, color: "#f59e0b" }}>🍫 {st.sergei.chocolates || 0}</span>
@@ -97,8 +117,9 @@ export default function App() {
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 12 }}>{SYNC_ICONS[syncStatus]}</span>
+              <span style={{ fontSize: 12 }}>{SYNC_ICONS[syncStatus] || SYNC_ICONS.online}</span>
               {!SUPABASE_ENABLED && <span style={{ fontSize: 9, color: "#334155", fontWeight: 700 }}>LOCAL</span>}
+              {user === "test" && <span style={{ fontSize: 9, color: "#fbbf24", fontWeight: 700 }}>TEST</span>}
             </div>
             <button onClick={handleLogout} style={{ padding: "7px 14px", background: "#1e3a5f", color: "#94a3b8", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Выйти</button>
           </div>
@@ -119,7 +140,7 @@ export default function App() {
         </div>
 
         {/* Bottom Nav */}
-        {user === "sergei" && (
+        {isSergeiLike && (
           <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(2,6,23,.94)", backdropFilter: "blur(24px)", borderTop: "1px solid #1e3a5f33", display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom)" }}>
             {NAV_ITEMS.map(item => (
               <button key={item.id} onClick={() => setTab(item.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 8px", background: "none", border: "none", cursor: "pointer", color: tab === item.id ? "#fbbf24" : "#334155", fontFamily: "'Nunito',sans-serif", fontSize: 10, fontWeight: 800, transition: "color .2s" }}>

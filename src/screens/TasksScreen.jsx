@@ -31,10 +31,19 @@ export default function TasksScreen({ st, setSt, showToast }) {
       setSt(s => {
         const currentFailed = new Set(s.sergei.failedTasks || []);
         const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
+        // Задания, отправленные на проверку админу, НЕ должны автоматически
+        // помечаться как проваленные — админ ещё не принял решение.
+        const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
         const newFailed = [];
         const newLogs = [];
         for (const task of s.tasks) {
-          if (task.deadlineAt && !currentFailed.has(task.id) && !currentCompleted.has(task.id) && now > task.deadlineAt) {
+          if (
+            task.deadlineAt &&
+            !currentFailed.has(task.id) &&
+            !currentCompleted.has(task.id) &&
+            !currentPending.has(task.id) &&
+            now > task.deadlineAt
+          ) {
             newFailed.push(task.id);
             newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
             newlyFailedTitles.push(task.title);

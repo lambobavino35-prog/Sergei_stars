@@ -12,9 +12,9 @@ export default function LogScreen({ st, setSt, user }) {
     return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   };
 
-  // Может ли Сергей реагировать на эту запись?
-  // Только если user === 'sergei' (не админ) И тип события — НЕ его собственное действие.
-  const canReact = (entry) => user === "sergei" && !OWN_ACTION_TYPES.includes(entry.type);
+  // Может ли пользователь реагировать на эту запись?
+  // Только если user === 'sergei' (или 'test' в песочнице) И тип события — НЕ его собственное действие.
+  const canReact = (entry) => (user === "sergei" || user === "test") && !OWN_ACTION_TYPES.includes(entry.type);
 
   const handleReact = (entry, emoji) => {
     // Тумблер: если уже стоит эта же реакция — снимаем, иначе ставим
@@ -26,8 +26,9 @@ export default function LogScreen({ st, setSt, user }) {
         log: s.sergei.log.map(l => l.id === entry.id ? { ...l, reaction: newReaction } : l),
       },
     }));
-    // Пишем сразу в Supabase (точечный PATCH, без debounced push)
-    setLogReaction(entry.id, newReaction);
+    // Пишем сразу в Supabase (точечный PATCH, без debounced push).
+    // Для тестового юзера Supabase выключен — setLogReaction просто no-op.
+    if (user !== "test") setLogReaction(entry.id, newReaction);
     setOpenPicker(null);
   };
 

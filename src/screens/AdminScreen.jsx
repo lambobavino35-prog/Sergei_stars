@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, insertNotification, sendToTelegram } from "../hooks";
+import { deletePending, approveTask, rejectTask, insertNotification, sendToTelegram, isTelegramMuted, setTelegramMuted } from "../hooks";
 import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
@@ -17,6 +17,16 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const [tgSubscribers, setTgSubscribers] = useState([]);
   const [tgLoading, setTgLoading] = useState(false);
   const [tgOnlyText, setTgOnlyText] = useState("");
+  // Ручной тумблер "заглушить Telegram" — когда админ тестирует,
+  // чтобы Сергей не получал кучу уведомлений.
+  const [tgMuted, setTgMuted] = useState(isTelegramMuted());
+
+  const toggleTgMute = () => {
+    const next = !tgMuted;
+    setTelegramMuted(next);
+    setTgMuted(next);
+    showToast(next ? "🔕 Telegram выключен" : "🔔 Telegram включён", "ok");
+  };
 
   const pending = (st.pendingTasks || []).filter(p => p.userId === "sergei");
   const getTaskById = id => st.tasks.find(t => t.id === id);
@@ -26,24 +36,47 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const approve = async (entry, comment = "") => {
     const task = getTaskById(entry.taskId);
     if (!task) return;
-    // Формируем запись о выполненном задании
+    // Считаем новые значения на основе текущего локального стейта
+    const newCoins       = st.sergei.coins + task.reward;
+    const newTotalEarned = (st.sergei.totalEarned || 0) + task.reward;
+    // Если задание было помечено как проваленное (дедлайн истёк,
+    // но админ всё равно решил одобрить) — убираем его из failedTasks.
+    const newFailedTasks = (st.sergei.failedTasks || []).filter(id => id !== task.id);
+
     const completedEntry = { id: crypto.randomUUID(), taskId: task.id, date: Date.now() };
-    // Сначала пишем в sq_completed_tasks, потом удаляем из sq_pending —
-    // это исключает race condition, при котором другое устройство могло
-    // увидеть задание как доступное в промежутке между двумя операциями.
-    await approveTask(entry.id, completedEntry);
+    const logEntry = {
+      id: crypto.randomUUID(),
+      type: "earn",
+      text: `✅ Задание «${task.title}» одобрено`,
+      amount: task.reward,
+      ts: Date.now(),
+      comment: comment || null,
+    };
+
+    // Пишем сразу в Supabase (completed → profile patch → log → delete pending).
+    // sbPatch точечно обновляет только нужные поля профиля — никакой другой
+    // клиент не сможет перезаписать монеты своим stale-UPSERT'ом.
+    await approveTask(
+      entry.id,
+      completedEntry,
+      {
+        coins: newCoins,
+        total_earned: newTotalEarned,
+        failed_tasks: newFailedTasks,
+      },
+      logEntry,
+    );
+
     setSt(s => ({
       ...s,
       pendingTasks: s.pendingTasks.filter(p => p.id !== entry.id),
       sergei: {
         ...s.sergei,
-        coins:          s.sergei.coins + task.reward,
-        totalEarned:    (s.sergei.totalEarned || 0) + task.reward,
+        coins:          newCoins,
+        totalEarned:    newTotalEarned,
+        failedTasks:    newFailedTasks,
         completedTasks: [...s.sergei.completedTasks, completedEntry],
-        log: [
-          { id: crypto.randomUUID(), type: "earn", text: `✅ Задание «${task.title}» одобрено`, amount: task.reward, ts: Date.now(), comment: comment || null },
-          ...s.sergei.log,
-        ].slice(0, 100),
+        log: [logEntry, ...s.sergei.log].slice(0, 100),
       },
     }));
     insertNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
@@ -52,17 +85,21 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
   const reject = async (entry, comment = "") => {
     const task = getTaskById(entry.taskId);
-    // Удаляем из Supabase сразу
-    await deletePending(entry.id);
+    const logEntry = {
+      id: crypto.randomUUID(),
+      type: "reject",
+      text: `❌ Задание «${task?.title || "—"}» отклонено`,
+      ts: Date.now(),
+      comment: comment || null,
+    };
+    // Пишем лог и удаляем из Supabase сразу (без debounce push).
+    await rejectTask(entry.id, null, logEntry);
     setSt(s => ({
       ...s,
       pendingTasks: s.pendingTasks.filter(p => p.id !== entry.id),
       sergei: {
         ...s.sergei,
-        log: [
-          { id: crypto.randomUUID(), type: "reject", text: `❌ Задание «${task?.title || "—"}» отклонено`, ts: Date.now(), comment: comment || null },
-          ...s.sergei.log,
-        ].slice(0, 100),
+        log: [logEntry, ...s.sergei.log].slice(0, 100),
       },
     }));
     insertNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
@@ -388,18 +425,15 @@ export default function AdminScreen({ st, setSt, showToast }) {
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto" }}>
-        {(() => {
-          const reactionsCount = (st.sergei.log || []).filter(l => l.reaction).length;
-          return [
-            ["pending", "⏳ Проверка" + (pending.length ? ` (${pending.length})` : "")],
-            ["rewards", "🎁 Награды"],
-            ["tasks", "📋 Задания"],
-            ["tiers", "🔮 Тиры"],
-            ["balance", "💰 Баланс"],
-            ["log", "📜 Лог" + (reactionsCount ? ` (${reactionsCount}💬)` : "")],
-            ["telegram", "📱 Telegram"],
-          ];
-        })().map(([id, label]) => (
+        {[
+          ["pending", "⏳ Проверка" + (pending.length ? ` (${pending.length})` : "")],
+          ["rewards", "🎁 Награды"],
+          ["tasks", "📋 Задания"],
+          ["tiers", "🔮 Тиры"],
+          ["balance", "💰 Баланс"],
+          ["log", "📜 Лог"],
+          ["telegram", "📱 Telegram"],
+        ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flexShrink: 0, padding: "9px 14px", border: tab === id ? "none" : "1px solid #1e3a5f", borderRadius: 12, background: tab === id ? "#fbbf24" : "#0f172a", color: tab === id ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>{label}</button>
         ))}
       </div>
@@ -664,24 +698,20 @@ export default function AdminScreen({ st, setSt, showToast }) {
         </div>
       )}
 
-      {/* ─── ЛОГ + РЕАКЦИИ СЕРГЕЯ ─── */}
+      {/* ─── ЛОГ ─── */}
       {tab === "log" && (() => {
         const log = st.sergei.log || [];
-        const withReactions = log.filter(l => l.reaction);
         const formatDate = ts => {
           const d = new Date(ts);
           return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
         };
-        const LogRow = ({ entry, highlighted }) => (
+        const LogRow = ({ entry }) => (
           <div style={{
-            background: highlighted
-              ? "linear-gradient(135deg,#1c1438,#0c1e3a)"
-              : "linear-gradient(135deg,#0f172a,#020617)",
-            border: highlighted ? "1px solid #38bdf888" : "1px solid #1e3a5f",
+            background: "linear-gradient(135deg,#0f172a,#020617)",
+            border: "1px solid #1e3a5f",
             borderRadius: 14,
             padding: "12px 14px",
             marginBottom: 8,
-            boxShadow: highlighted ? "0 0 12px #38bdf833" : "none",
           }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -698,12 +728,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
                   {entry.amount > 0 ? "+" : ""}{entry.amount} 💰
                 </div>
               )}
-            </div>
-            {entry.reaction && (
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#38bdf8", textTransform: "uppercase", letterSpacing: ".05em" }}>
-                  Реакция Сергея:
-                </span>
+              {entry.reaction && (
                 <div style={{
                   background: "linear-gradient(135deg,#1e3a5f,#0c1e3a)",
                   border: "1px solid #38bdf8aa",
@@ -711,30 +736,17 @@ export default function AdminScreen({ st, setSt, showToast }) {
                   padding: "3px 10px",
                   fontSize: 18,
                   lineHeight: 1,
+                  flexShrink: 0,
+                  alignSelf: "center",
                 }}>
                   {entry.reaction}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         );
         return (
           <div>
-            {/* Блок реакций */}
-            <div style={{ background: "linear-gradient(135deg,#0c1e3a,#020617)", border: "1px solid #38bdf855", borderRadius: 20, padding: 16, marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#38bdf8", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".05em" }}>
-                💬 Реакции Сергея ({withReactions.length})
-              </div>
-              {withReactions.length === 0 ? (
-                <div style={{ color: "#475569", fontWeight: 700, fontSize: 13, textAlign: "center", padding: 16 }}>
-                  Пока никаких реакций
-                </div>
-              ) : (
-                withReactions.map(entry => <LogRow key={entry.id} entry={entry} highlighted />)
-              )}
-            </div>
-
-            {/* Полный лог */}
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10, letterSpacing: ".05em" }}>
               📜 Вся история ({log.length})
             </div>
@@ -744,7 +756,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
                 <div style={{ fontWeight: 700 }}>История пуста</div>
               </div>
             ) : (
-              log.map(entry => <LogRow key={entry.id} entry={entry} highlighted={!!entry.reaction} />)
+              log.map(entry => <LogRow key={entry.id} entry={entry} />)
             )}
           </div>
         );
@@ -773,6 +785,44 @@ export default function AdminScreen({ st, setSt, showToast }) {
 
             {TELEGRAM_ENABLED && (
               <>
+                {/* ── Тумблер: временно выключить рассылку ── */}
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "10px 12px",
+                  marginBottom: 14,
+                  background: tgMuted ? "#2d1500" : "#07111f",
+                  border: `1px solid ${tgMuted ? "#78350f" : "#1e3a5f"}`,
+                  borderRadius: 12,
+                }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: tgMuted ? "#fbbf24" : "#f1f5f9" }}>
+                      {tgMuted ? "🔕 Рассылка выключена" : "🔔 Рассылка включена"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#475569", fontWeight: 700, marginTop: 2 }}>
+                      Временная пауза — Сергей не получит Telegram-уведомления (лог и монеты работают как обычно).
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleTgMute}
+                    style={{
+                      flexShrink: 0,
+                      padding: "8px 14px",
+                      background: tgMuted ? "#059669" : "#dc2626",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 10,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {tgMuted ? "🔔 Включить" : "🔕 Выключить"}
+                  </button>
+                </div>
+
                 {/* Список подписчиков */}
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>

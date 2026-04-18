@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SAVE_KEY } from "../constants";
+import { SAVE_KEY, TEST_PIN } from "../constants";
 
 export default function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
@@ -10,6 +10,8 @@ export default function LoginScreen({ onLogin }) {
     const np = pin + k;
     setPin(np);
     if (np.length === 4) {
+      // Тестовый PIN — отдельная изолированная песочница (не трогает Sergei)
+      if (np === TEST_PIN) { onLogin("test"); return; }
       try {
         const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
         const sergeiPin = saved.sergei?.pin || "1234";
