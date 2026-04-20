@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { NAV_ITEMS, SYNC_ICONS, SUPABASE_ENABLED } from "./constants";
 import { useSt, useSupabaseSync, useBurst } from "./hooks";
 import Toast from "./components/Toast";
@@ -10,6 +10,30 @@ import TasksScreen from "./screens/TasksScreen";
 import LogScreen from "./screens/LogScreen";
 import RewardScreen from "./screens/RewardScreen";
 import AdminScreen from "./screens/AdminScreen";
+
+// ══════════════════════════════════════════════════════════════
+//  PULL-TO-REFRESH
+//  Сверху скролла пальцем вниз → на пороге делаем force reload:
+//  чистим Cache Storage (Service Worker / PWA) и reload'им страницу.
+//  Тянет тач-событиями — для мобильных браузеров; на десктопе
+//  мышью не срабатывает и не мешает.
+// ══════════════════════════════════════════════════════════════
+const PULL_THRESHOLD = 75;   // px — при каком смещении запускаем reload
+const PULL_MAX       = 140;  // px — визуальный потолок индикатора
+const PULL_RESIST    = 0.5;  // коэффициент «тугости» (чем меньше, тем тяжелее тянуть)
+
+async function forceReload() {
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch {}
+  // Bust HTTP-кеш через query-param — надёжнее обычного reload().
+  const url = new URL(window.location.href);
+  url.searchParams.set("_r", Date.now().toString());
+  window.location.replace(url.toString());
+}
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Baloo+2:wght@700;800;900&display=swap');
@@ -38,6 +62,86 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bursts, fireBurst] = useBurst();
   const syncStatus = useSupabaseSync(st, setSt, user);
+
+  // ─── Pull-to-refresh ────────────────────────────────────────
+  const scrollRef = useRef(null);
+  const [pullDist, setPullDist] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullState = useRef({ startY: null, active: false, dist: 0 });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e) => {
+      // Активируем pull только если мы на самом верху скролла —
+      // иначе это обычный скролл страницы.
+      if (el.scrollTop <= 0 && e.touches.length === 1) {
+        pullState.current.startY = e.touches[0].clientY;
+        pullState.current.active = false;
+        pullState.current.dist = 0;
+      } else {
+        pullState.current.startY = null;
+      }
+    };
+
+    const onTouchMove = (e) => {
+      const st = pullState.current;
+      if (st.startY === null) return;
+      // Если пользователь успел прокрутить вниз — отменяем pull.
+      if (el.scrollTop > 0) {
+        st.startY = null;
+        st.active = false;
+        st.dist = 0;
+        setPullDist(0);
+        return;
+      }
+      const deltaY = e.touches[0].clientY - st.startY;
+      if (deltaY <= 0) {
+        // Палец поднимается / не тянет вниз — сбрасываем.
+        if (st.dist !== 0) {
+          st.dist = 0;
+          setPullDist(0);
+        }
+        return;
+      }
+      // Начинаем жест только когда пересекли ~5px вниз —
+      // иначе любой клик интерпретировался бы как pull.
+      if (!st.active && deltaY > 5) st.active = true;
+      if (!st.active) return;
+
+      const distance = Math.min(deltaY * PULL_RESIST, PULL_MAX);
+      st.dist = distance;
+      setPullDist(distance);
+    };
+
+    const onTouchEnd = () => {
+      const st = pullState.current;
+      if (st.active && st.dist >= PULL_THRESHOLD) {
+        setRefreshing(true);
+        setPullDist(PULL_THRESHOLD); // «защёлкиваем» индикатор на пороге
+        // Небольшой таймаут — чтобы пользователь увидел, что рефреш принят.
+        setTimeout(() => { forceReload(); }, 200);
+      } else {
+        setPullDist(0);
+      }
+      st.startY = null;
+      st.active = false;
+      st.dist = 0;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [user]); // пересоздаём после логина, когда контейнер меняется
 
   // Загружаем model-viewer для 3D значков
   useEffect(() => {
@@ -107,7 +211,74 @@ export default function App() {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
+        <div
+          ref={scrollRef}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            paddingBottom: 80,
+            // «Оттягиваем» содержимое вниз на pullDist px, чтобы было
+            // видно индикатор сверху. Translate, а не padding — чтобы
+            // анимация была на GPU и без перерисовки layout.
+            transform: `translateY(${pullDist}px)`,
+            transition: pullState.current?.active ? "none" : "transform .25s ease-out",
+            // На iOS Safari нужен, иначе скролл «заедает» при оттягивании
+            WebkitOverflowScrolling: "touch",
+            // Отключаем нативный chrome-style pull-to-refresh (он вступает
+            // в конфликт с нашим — в результате жест ломается)
+            overscrollBehaviorY: "contain",
+          }}
+        >
+          {/* Pull-to-refresh индикатор — вклеен в поток,
+              позиционирован над контентом отрицательным margin'ом. */}
+          <div
+            style={{
+              height: PULL_MAX,
+              marginTop: -PULL_MAX,
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              paddingBottom: 10,
+              opacity: pullDist > 0 ? Math.min(1, pullDist / PULL_THRESHOLD) : 0,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 16px",
+                background: "rgba(15,23,42,0.85)",
+                borderRadius: 99,
+                border: "1px solid #1e3a5f",
+                color: pullDist >= PULL_THRESHOLD ? "#fbbf24" : "#94a3b8",
+                fontSize: 12,
+                fontWeight: 800,
+                fontFamily: "'Nunito',sans-serif",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 16,
+                  display: "inline-block",
+                  animation: refreshing ? "rotateSpin 1s linear infinite" : "none",
+                  transform: refreshing
+                    ? "none"
+                    : `rotate(${Math.min(180, (pullDist / PULL_THRESHOLD) * 180)}deg)`,
+                  transition: "transform .08s",
+                }}
+              >
+                {refreshing ? "⟳" : "↓"}
+              </span>
+              {refreshing
+                ? "Обновляем…"
+                : pullDist >= PULL_THRESHOLD
+                  ? "Отпусти для обновления"
+                  : "Потяни для обновления"}
+            </div>
+          </div>
+
           {user === "admin" ? (
             <AdminScreen st={st} setSt={setSt} showToast={showToast} />
           ) : (

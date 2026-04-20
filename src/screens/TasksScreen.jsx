@@ -10,6 +10,38 @@ function formatDeadlineLeft(deadlineAt) {
   return h > 0 ? `⏰ ${h}ч ${m}м` : `⏰ ${m}м`;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  DEADLINE WARNINGS (6h и 1h до провала)
+//  Храним «уже предупредили» в localStorage, чтобы не спамить
+//  повторно при каждой проверке / перезагрузке страницы.
+//  Формат: { [taskId]: { "6h": true, "1h": true } }
+// ══════════════════════════════════════════════════════════════
+const DEADLINE_WARNED_KEY = "sq_deadline_warned_v1";
+
+function loadWarned() {
+  try {
+    return JSON.parse(localStorage.getItem(DEADLINE_WARNED_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveWarned(data) {
+  try {
+    localStorage.setItem(DEADLINE_WARNED_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+// Чистим записи о заданиях, которых больше нет (удалены админом
+// либо выполнены / провалены), чтобы localStorage не разрастался.
+function pruneWarned(warned, knownTaskIds) {
+  const pruned = {};
+  for (const tid of Object.keys(warned)) {
+    if (knownTaskIds.has(tid)) pruned[tid] = warned[tid];
+  }
+  return pruned;
+}
+
 export default function TasksScreen({ st, setSt, showToast }) {
   const [filter, setFilter] = useState("Все");
   const [selectedTask, setSelectedTask] = useState(null);
@@ -28,6 +60,9 @@ export default function TasksScreen({ st, setSt, showToast }) {
     const checkDeadlines = () => {
       const now = Date.now();
       let newlyFailedTitles = [];
+      // Собираем «предупреждения» отдельно, чтобы послать их
+      // в Telegram ПОСЛЕ setSt (в сайд-эффекте, а не в редьюсере).
+      const warningsToSend = []; // [{ title, kind: "6h" | "1h" }]
       setSt(s => {
         const currentFailed = new Set(s.sergei.failedTasks || []);
         const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
@@ -36,19 +71,53 @@ export default function TasksScreen({ st, setSt, showToast }) {
         const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
         const newFailed = [];
         const newLogs = [];
+
+        // Загружаем локальный журнал «уже предупреждали», подрезаем
+        // по текущим таскам (на случай, если админ удалил задание).
+        const knownIds = new Set(s.tasks.map(t => t.id));
+        let warned = pruneWarned(loadWarned(), knownIds);
+        let warnedChanged = false;
+
         for (const task of s.tasks) {
-          if (
-            task.deadlineAt &&
-            !currentFailed.has(task.id) &&
-            !currentCompleted.has(task.id) &&
-            !currentPending.has(task.id) &&
-            now > task.deadlineAt
-          ) {
+          if (!task.deadlineAt) continue;
+          // Для выполненных / проваленных / отправленных на проверку —
+          // никаких напоминаний, задание уже «решено».
+          if (currentFailed.has(task.id)) continue;
+          if (currentCompleted.has(task.id)) continue;
+          if (currentPending.has(task.id)) continue;
+
+          const msLeft = task.deadlineAt - now;
+
+          // Автофейл при просрочке (прежняя логика).
+          if (msLeft <= 0) {
             newFailed.push(task.id);
             newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
             newlyFailedTitles.push(task.title);
+            continue;
+          }
+
+          const hoursLeft = msLeft / 3600000;
+          const taskWarned = warned[task.id] || {};
+
+          // 6-часовое окно: срабатываем когда времени ≤6ч, но >1ч
+          // (иначе при создании таски с дедлайном меньше 6ч
+          //  придёт и 6ч-, и 1ч-уведомление почти одновременно).
+          if (hoursLeft <= 6 && hoursLeft > 1 && !taskWarned["6h"]) {
+            warned[task.id] = { ...taskWarned, "6h": true };
+            warnedChanged = true;
+            warningsToSend.push({ title: task.title, kind: "6h", hoursLeft });
+          }
+
+          // 1-часовое окно: ≤1ч осталось и ещё не слали.
+          if (hoursLeft <= 1 && !taskWarned["1h"]) {
+            warned[task.id] = { ...(warned[task.id] || {}), "1h": true };
+            warnedChanged = true;
+            warningsToSend.push({ title: task.title, kind: "1h", hoursLeft });
           }
         }
+
+        if (warnedChanged) saveWarned(warned);
+
         if (newFailed.length === 0) return s;
         return {
           ...s,
@@ -59,9 +128,19 @@ export default function TasksScreen({ st, setSt, showToast }) {
           },
         };
       });
-      // Отправляем в Telegram после обновления стейта
+
+      // Отправляем в Telegram после обновления стейта.
       for (const title of newlyFailedTitles) {
         sendToTelegram(`💀 Задание «${title}» провалено — дедлайн истёк`);
+      }
+      for (const w of warningsToSend) {
+        if (w.kind === "6h") {
+          const h = Math.max(1, Math.ceil(w.hoursLeft));
+          sendToTelegram(`⏰ До провала задания «${w.title}» осталось ${h} ${h === 1 ? "час" : h < 5 ? "часа" : "часов"}!`);
+        } else {
+          const m = Math.max(1, Math.ceil(w.hoursLeft * 60));
+          sendToTelegram(`🚨 Срочно! До провала задания «${w.title}» ${m === 1 ? "осталась 1 минута" : m < 5 ? `осталось ${m} минуты` : `осталось ${m} минут`}!`);
+        }
       }
     };
     checkDeadlines();
