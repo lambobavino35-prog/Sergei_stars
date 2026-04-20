@@ -35,6 +35,28 @@ async function forceReload() {
   window.location.replace(url.toString());
 }
 
+// ══════════════════════════════════════════════════════════════
+//  Сохраняем залогиненного пользователя, чтобы pull-to-refresh
+//  (или любой другой reload) не сбрасывал обратно на экран PIN.
+// ══════════════════════════════════════════════════════════════
+const USER_KEY = "sq_current_user";
+
+function loadUser() {
+  try {
+    const v = localStorage.getItem(USER_KEY);
+    return v === "sergei" || v === "admin" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveUser(u) {
+  try {
+    if (u) localStorage.setItem(USER_KEY, u);
+    else   localStorage.removeItem(USER_KEY);
+  } catch {}
+}
+
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Baloo+2:wght@700;800;900&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -56,7 +78,7 @@ const CSS = `
 `;
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(loadUser);
   const [st, setSt] = useSt();
   const [tab, setTab] = useState("profile");
   const [toast, setToast] = useState(null);
@@ -158,8 +180,8 @@ export default function App() {
     setTimeout(() => setToast(null), 2800);
   }, []);
 
-  const handleLogin = (uid) => { setUser(uid); };
-  const handleLogout = () => { setUser(null); setTab("profile"); };
+  const handleLogin = (uid) => { saveUser(uid); setUser(uid); };
+  const handleLogout = () => { saveUser(null); setUser(null); setTab("profile"); };
 
   if (!user) return (
     <>
