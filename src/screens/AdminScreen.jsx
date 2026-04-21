@@ -561,11 +561,45 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все задания ({st.tasks.length})</div>
             {(() => {
-              const notDone = st.tasks.filter(t => !(st.sergei.completedTasks || []).some(ct => ct.taskId === t.id));
-              const done = st.tasks.filter(t => (st.sergei.completedTasks || []).some(ct => ct.taskId === t.id));
+              // ─── Определяем выполненность ─────────────────────────
+              // Источник №1 — sq_completed_tasks (st.sergei.completedTasks).
+              // Источник №2 (fallback) — лог «earn». Если запись в
+              // sq_completed_tasks по какой-то причине не проросла
+              // (старые записи до миграции, гонка с pull'ом и т.п.),
+              // а в логе есть «Задание «X» одобрено» — всё равно считаем
+              // задание выполненным. Та же логика, что в TasksScreen,
+              // чтобы у админа и у Сергея картина совпадала.
+              const completedById = new Map();
+              for (const ct of (st.sergei.completedTasks || [])) {
+                const arr = completedById.get(ct.taskId) || [];
+                arr.push(ct);
+                completedById.set(ct.taskId, arr);
+              }
+              const earnedTitleToTs = new Map();
+              for (const l of (st.sergei.log || [])) {
+                if (l.type !== "earn") continue;
+                const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
+                if (!m) continue;
+                const title = m[1];
+                const prev = earnedTitleToTs.get(title) || 0;
+                if (l.ts > prev) earnedTitleToTs.set(title, l.ts);
+              }
+              const isDoneTask = (t) =>
+                completedById.has(t.id) || earnedTitleToTs.has(t.title);
+
+              const notDone = st.tasks.filter(t => !isDoneTask(t));
+              const done = st.tasks.filter(t => isDoneTask(t));
+
               const renderTask = t => {
-                const completions = (st.sergei.completedTasks || []).filter(ct => ct.taskId === t.id);
-                const isDone = completions.length > 0;
+                const completions = completedById.get(t.id) || [];
+                const isDone = isDoneTask(t);
+                // Последняя дата — максимум между completedTasks и log-earn.
+                let lastTs = 0;
+                for (const c of completions) {
+                  if ((c.date || 0) > lastTs) lastTs = c.date || 0;
+                }
+                const earnedTs = earnedTitleToTs.get(t.title) || 0;
+                if (earnedTs > lastTs) lastTs = earnedTs;
                 return (
                   <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: isDone ? "linear-gradient(90deg,#03180a00,#03180a66)" : "none" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, flex: 1 }}>
@@ -577,7 +611,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
                         </div>
                         {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
                         {t.deadlineAt && <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 700 }}>⏰ Дедлайн: {new Date(t.deadlineAt).toLocaleString("ru-RU")}</div>}
-                        {isDone && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(completions[completions.length - 1]?.date || 0).toLocaleDateString("ru-RU")}</div>}
+                        {isDone && lastTs > 0 && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(lastTs).toLocaleDateString("ru-RU")}</div>}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
