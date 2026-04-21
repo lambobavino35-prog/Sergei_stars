@@ -1,0 +1,13 @@
+import "node:module";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import.meta.url;
+var vite_config_default = defineConfig({
+	plugins: [react()],
+	server: { port: 3e3 },
+	build: { outDir: "build" }
+});
+//#endregion
+export { vite_config_default as default };
+
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoidml0ZS5jb25maWcuanMiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsiL3Nlc3Npb25zL3RlbmRlci1ncmVhdC1mZXlubWFuL21udC9TZXJnZWkgc3RhcnMvU2VyZ2VpX3N0YXJzLW1haW4vdml0ZS5jb25maWcuanMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgZGVmaW5lQ29uZmlnIH0gZnJvbSAndml0ZSdcbmltcG9ydCByZWFjdCBmcm9tICdAdml0ZWpzL3BsdWdpbi1yZWFjdCdcblxuLy8gaHR0cHM6Ly92aXRlLmRldi9jb25maWcvXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xuICBwbHVnaW5zOiBbcmVhY3QoKV0sXG4gIHNlcnZlcjoge1xuICAgIHBvcnQ6IDMwMDAsXG4gIH0sXG4gIGJ1aWxkOiB7XG4gICAgb3V0RGlyOiAnYnVpbGQnLCAvLyBWZXJjZWwg0L7QttC40LTQsNC10YIgJ2J1aWxkJyDQtdGB0LvQuCDQv9GA0L7QtdC60YIg0LHRi9C7INC90LAgQ1JBIOKAlCDQvtGB0YLQsNCy0LvRj9C10Lwg0YHQvtCy0LzQtdGB0YLQuNC80L7RgdGC0YxcbiAgfSxcbn0pXG4iXSwibWFwcGluZ3MiOiI7Ozs7QUFJQSxJQUFBLHNCQUFlLGFBQWE7Q0FDMUIsU0FBUyxDQUFDLE9BQU8sQ0FBQztDQUNsQixRQUFRLEVBQ04sTUFBTSxLQUNQO0NBQ0QsT0FBTyxFQUNMLFFBQVEsU0FDVDtDQUNGLENBQUEifQ==

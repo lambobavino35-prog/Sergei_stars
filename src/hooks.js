@@ -327,7 +327,11 @@ export function useSupabaseSync(st, setSt, user) {
         sbGet("sq_log", "?select=*&order=ts.desc&limit=100"),
         sbGet("sq_custom_tiers", "?select=*&order=id.asc"),
         sbGet("sq_purchased_rewards", "?select=*&order=bought_at.desc"),
-        sbGet("sq_completed_tasks", "?select=*&order=completed_at.desc&limit=200"),
+        // Без limit'а: раньше стоял limit=200 и при накоплении истории
+        // старые выполненные задания «выпадали» из стейта → снова
+        // показывались как активные. Берём всё, задания одноразовые,
+        // сериализация через realtime потоковая — размер не проблема.
+        sbGet("sq_completed_tasks", "?select=*&order=completed_at.desc"),
       ]);
 
       if (!profiles.length) { setSyncStatus("online"); return; }

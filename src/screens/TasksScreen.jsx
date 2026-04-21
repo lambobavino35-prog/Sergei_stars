@@ -106,9 +106,29 @@ export default function TasksScreen({ st, setSt, showToast }) {
   const pendingIds = (st.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId);
   const failedTaskIds = new Set(st.sergei.failedTasks || []);
 
-  // Все выполненные задания из БД — все задания одноразовые
+  // ─── Все выполненные задания ─────────────────────────────────
+  // Задания одноразовые: если хотя бы раз было одобрено — считаем done.
+  // Источник №1 — sq_completed_tasks.
   const completedEver = new Set((st.sergei.completedTasks || []).map(c => c.taskId));
-  const isDoneTask = useCallback((task) => completedEver.has(task.id), [completedEver]);
+  // Источник №2 (fallback) — лог «earn». Если по какой-то причине
+  // запись в sq_completed_tasks не проросла (старые записи до миграции,
+  // гонка с pull и т.п.), а в логе есть "Задание «X» одобрено" — тоже
+  // считаем его выполненным. Матчим по заголовку задания — не идеально,
+  // но задания с одинаковым заголовком редкость, а регрессия (активные
+  // задания, которые явно когда-то были сделаны) хуже ложноположительного.
+  const earnedTitles = new Set(
+    (st.sergei.log || [])
+      .filter(l => l.type === "earn")
+      .map(l => {
+        const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
+        return m ? m[1] : null;
+      })
+      .filter(Boolean)
+  );
+  const isDoneTask = useCallback(
+    (task) => completedEver.has(task.id) || earnedTitles.has(task.title),
+    [completedEver, earnedTitles]
+  );
 
   // Стабильная ссылка на st для чтения актуального состояния внутри
   // интервала, без пересоздания эффекта на каждое изменение.

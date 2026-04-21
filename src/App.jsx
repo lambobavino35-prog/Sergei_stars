@@ -18,9 +18,11 @@ import AdminScreen from "./screens/AdminScreen";
 //  Тянет тач-событиями — для мобильных браузеров; на десктопе
 //  мышью не срабатывает и не мешает.
 // ══════════════════════════════════════════════════════════════
-const PULL_THRESHOLD = 75;   // px — при каком смещении запускаем reload
-const PULL_MAX       = 140;  // px — визуальный потолок индикатора
-const PULL_RESIST    = 0.5;  // коэффициент «тугости» (чем меньше, тем тяжелее тянуть)
+const PULL_THRESHOLD = 110;  // px — при каком смещении запускаем reload
+const PULL_MAX       = 170;  // px — визуальный потолок индикатора
+const PULL_RESIST    = 0.35; // коэффициент «тугости» (чем меньше, тем тяжелее тянуть)
+const PULL_ACTIVATE  = 24;   // px — минимальный drag по Y до активации жеста
+                              //     (раньше 5px → случайные касания запускали pull)
 
 async function forceReload() {
   try {
@@ -127,12 +129,14 @@ export default function App() {
         }
         return;
       }
-      // Начинаем жест только когда пересекли ~5px вниз —
-      // иначе любой клик интерпретировался бы как pull.
-      if (!st.active && deltaY > 5) st.active = true;
+      // Начинаем жест только когда пересекли PULL_ACTIVATE px вниз —
+      // иначе любой случайный скролл/тап запускал pull.
+      if (!st.active && deltaY > PULL_ACTIVATE) st.active = true;
       if (!st.active) return;
 
-      const distance = Math.min(deltaY * PULL_RESIST, PULL_MAX);
+      // Вычитаем PULL_ACTIVATE из deltaY, чтобы индикатор «стартовал с 0»
+      // ровно в момент активации, а не прыгал сразу на ~PULL_ACTIVATE*RESIST.
+      const distance = Math.min((deltaY - PULL_ACTIVATE) * PULL_RESIST, PULL_MAX);
       st.dist = distance;
       setPullDist(distance);
     };
@@ -200,7 +204,7 @@ export default function App() {
       {toast && <Toast msg={toast.msg} type={toast.type} />}
       <BurstLayer bursts={bursts} />
 
-      <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+      <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", position: "relative" }}>
         {/* Header */}
         <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(2,6,23,.92)", backdropFilter: "blur(24px)", borderBottom: "1px solid #1e3a5f22", padding: "12px 16px", paddingTop: "calc(12px + env(safe-area-inset-top))", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -232,6 +236,75 @@ export default function App() {
           </div>
         </div>
 
+        {/* ─── Pull-to-refresh индикатор ─────────────────────────
+            Рендерим ВНЕ scrollRef и позиционируем абсолютно —
+            иначе `overflow:auto` контейнера клипал его (marginTop
+            -PULL_MAX выносил индикатор за границу viewport'а и он
+            был не виден). Теперь висит поверх всего и плавно
+            выезжает сверху, когда пользователь тянет. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 60,
+            display: "flex",
+            justifyContent: "center",
+            pointerEvents: "none",
+            // Выезжает сверху: при pullDist = 0 полностью спрятан,
+            // при pullDist ≥ PULL_THRESHOLD — плотно прижат сразу под header.
+            transform: `translateY(${Math.max(0, pullDist - 20)}px)`,
+            opacity: pullDist > 10 || refreshing ? Math.min(1, pullDist / (PULL_THRESHOLD * 0.6)) : 0,
+            transition: pullState.current?.active
+              ? "opacity .1s"
+              : "transform .25s ease-out, opacity .2s ease-out",
+          }}
+        >
+          <div
+            style={{
+              marginTop: 72, // ниже header'а (~60px) + небольшой отступ
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 18px",
+              background: "rgba(15,23,42,0.95)",
+              borderRadius: 99,
+              border: pullDist >= PULL_THRESHOLD || refreshing
+                ? "1px solid #fbbf24"
+                : "1px solid #1e3a5f",
+              boxShadow: pullDist >= PULL_THRESHOLD || refreshing
+                ? "0 4px 24px #fbbf2455, 0 0 0 4px #fbbf2422"
+                : "0 4px 20px #00000066",
+              color: pullDist >= PULL_THRESHOLD || refreshing ? "#fbbf24" : "#94a3b8",
+              fontSize: 12,
+              fontWeight: 800,
+              fontFamily: "'Nunito',sans-serif",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 18,
+                display: "inline-block",
+                animation: refreshing ? "rotateSpin 1s linear infinite" : "none",
+                transform: refreshing
+                  ? "none"
+                  : `rotate(${Math.min(180, (pullDist / PULL_THRESHOLD) * 180)}deg)`,
+                transition: "transform .08s",
+              }}
+            >
+              {refreshing ? "⟳" : "↓"}
+            </span>
+            {refreshing
+              ? "Обновляем…"
+              : pullDist >= PULL_THRESHOLD
+                ? "Отпусти для обновления"
+                : "Потяни сильнее…"}
+          </div>
+        </div>
+
         {/* Content */}
         <div
           ref={scrollRef}
@@ -239,9 +312,9 @@ export default function App() {
             flex: 1,
             overflowY: "auto",
             paddingBottom: 80,
-            // «Оттягиваем» содержимое вниз на pullDist px, чтобы было
-            // видно индикатор сверху. Translate, а не padding — чтобы
-            // анимация была на GPU и без перерисовки layout.
+            // «Оттягиваем» содержимое вниз на pullDist px, чтобы
+            // пользователь видел, что жест работает.
+            // Translate — анимация на GPU без перерисовки layout.
             transform: `translateY(${pullDist}px)`,
             transition: pullState.current?.active ? "none" : "transform .25s ease-out",
             // На iOS Safari нужен, иначе скролл «заедает» при оттягивании
@@ -251,56 +324,6 @@ export default function App() {
             overscrollBehaviorY: "contain",
           }}
         >
-          {/* Pull-to-refresh индикатор — вклеен в поток,
-              позиционирован над контентом отрицательным margin'ом. */}
-          <div
-            style={{
-              height: PULL_MAX,
-              marginTop: -PULL_MAX,
-              display: "flex",
-              alignItems: "flex-end",
-              justifyContent: "center",
-              paddingBottom: 10,
-              opacity: pullDist > 0 ? Math.min(1, pullDist / PULL_THRESHOLD) : 0,
-              pointerEvents: "none",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 16px",
-                background: "rgba(15,23,42,0.85)",
-                borderRadius: 99,
-                border: "1px solid #1e3a5f",
-                color: pullDist >= PULL_THRESHOLD ? "#fbbf24" : "#94a3b8",
-                fontSize: 12,
-                fontWeight: 800,
-                fontFamily: "'Nunito',sans-serif",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 16,
-                  display: "inline-block",
-                  animation: refreshing ? "rotateSpin 1s linear infinite" : "none",
-                  transform: refreshing
-                    ? "none"
-                    : `rotate(${Math.min(180, (pullDist / PULL_THRESHOLD) * 180)}deg)`,
-                  transition: "transform .08s",
-                }}
-              >
-                {refreshing ? "⟳" : "↓"}
-              </span>
-              {refreshing
-                ? "Обновляем…"
-                : pullDist >= PULL_THRESHOLD
-                  ? "Отпусти для обновления"
-                  : "Потяни для обновления"}
-            </div>
-          </div>
-
           {user === "admin" ? (
             <AdminScreen st={st} setSt={setSt} showToast={showToast} />
           ) : (
