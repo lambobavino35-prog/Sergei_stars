@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import TaskCard from "../components/TaskCard";
 import { deletePending, submitPending, sendToTelegram } from "../hooks";
 
@@ -42,9 +42,64 @@ function pruneWarned(warned, knownTaskIds) {
   return pruned;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  TaskRow — вынесен из TasksScreen, чтобы не пересоздавался
+//  как «новый тип компонента» на каждый рендер. Раньше из-за
+//  inline-определения React на каждом перерендере (например, при
+//  realtime-событии Supabase) размонтировал все строки заново, из-за
+//  чего тап по мобилке часто «проваливался».
+// ══════════════════════════════════════════════════════════════
+function TaskRow({ task, isFailed, isPending, isDone, deadlineLabel, onClick }) {
+  const isOverdue = deadlineLabel === "🔴 Просрочено";
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: isFailed ? "linear-gradient(135deg,#2d0a0a,#1a0505)" : isDone ? "linear-gradient(135deg,#031a10,#042a18)" : isPending ? "linear-gradient(135deg,#1c1407,#120c00)" : "linear-gradient(135deg,#0f172a,#020617)",
+        border: isFailed ? "1px solid #7f1d1d55" : isDone ? "1px solid #134e2a55" : isPending ? "1px solid #78350f55" : "1px solid #1e3a5f",
+        borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both",
+        cursor: "pointer",
+        opacity: isDone ? 0.65 : 1,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <span style={{ fontSize: 28, flexShrink: 0 }}>{task.emoji}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: isFailed ? "#f87171" : "#f1f5f9", marginBottom: 2 }}>{task.title}</div>
+          {task.description && <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.description}</div>}
+          <div style={{ fontSize: 11, color: "#334155", fontWeight: 700 }}>
+            {task.category} • {task.difficulty === "easy" ? "🟢 Лёгкое" : task.difficulty === "medium" ? "🟡 Среднее" : "🔴 Сложное"}
+          </div>
+          {deadlineLabel && !isDone && (
+            <div style={{ fontSize: 11, fontWeight: 800, color: isOverdue ? "#f87171" : "#fbbf24", marginTop: 3 }}>
+              {deadlineLabel}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+          <span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {task.reward}</span>
+          {isFailed    ? <span style={{ color: "#f87171", fontWeight: 800, fontSize: 11 }}>💀 Провалено</span>
+          : isDone    ? <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 11 }}>✅ Выполнено</span>
+          : isPending ? <span style={{ color: "#fbbf24", fontWeight: 800, fontSize: 11 }}>⏳ Проверка</span>
+          :             <span style={{ color: "#38bdf8", fontWeight: 800, fontSize: 11 }}>Нажми →</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TasksScreen({ st, setSt, showToast }) {
   const [filter, setFilter] = useState("Все");
   const [selectedTask, setSelectedTask] = useState(null);
+
+  // ─── Тикер «раз в минуту» ────────────────────────────────────
+  // Нужен, чтобы лейблы дедлайнов («⏰ 3ч 10м») сами
+  // обновлялись без ручных действий пользователя.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(x => x + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const categories = ["Все", ...Array.from(new Set(st.tasks.map(t => t.category)))];
 
@@ -53,83 +108,85 @@ export default function TasksScreen({ st, setSt, showToast }) {
 
   // Все выполненные задания из БД — все задания одноразовые
   const completedEver = new Set((st.sergei.completedTasks || []).map(c => c.taskId));
-  const isDoneTask = (task) => completedEver.has(task.id);
+  const isDoneTask = useCallback((task) => completedEver.has(task.id), [completedEver]);
+
+  // Стабильная ссылка на st для чтения актуального состояния внутри
+  // интервала, без пересоздания эффекта на каждое изменение.
+  const stRef = useRef(st);
+  useEffect(() => { stRef.current = st; }, [st]);
 
   // Check deadlines every 60 seconds
   useEffect(() => {
     const checkDeadlines = () => {
       const now = Date.now();
-      let newlyFailedTitles = [];
-      // Собираем «предупреждения» отдельно, чтобы послать их
-      // в Telegram ПОСЛЕ setSt (в сайд-эффекте, а не в редьюсере).
-      const warningsToSend = []; // [{ title, kind: "6h" | "1h" }]
-      setSt(s => {
-        const currentFailed = new Set(s.sergei.failedTasks || []);
-        const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
-        // Задания, отправленные на проверку админу, НЕ должны автоматически
-        // помечаться как проваленные — админ ещё не принял решение.
-        const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
-        const newFailed = [];
-        const newLogs = [];
+      const s = stRef.current;
 
-        // Загружаем локальный журнал «уже предупреждали», подрезаем
-        // по текущим таскам (на случай, если админ удалил задание).
-        const knownIds = new Set(s.tasks.map(t => t.id));
-        let warned = pruneWarned(loadWarned(), knownIds);
-        let warnedChanged = false;
+      const currentFailed = new Set(s.sergei.failedTasks || []);
+      const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
+      const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
 
-        for (const task of s.tasks) {
-          if (!task.deadlineAt) continue;
-          // Для выполненных / проваленных / отправленных на проверку —
-          // никаких напоминаний, задание уже «решено».
-          if (currentFailed.has(task.id)) continue;
-          if (currentCompleted.has(task.id)) continue;
-          if (currentPending.has(task.id)) continue;
+      const knownIds = new Set(s.tasks.map(t => t.id));
+      const warned = pruneWarned(loadWarned(), knownIds);
+      let warnedChanged = false;
 
-          const msLeft = task.deadlineAt - now;
+      const newFailed = [];
+      const newLogs = [];
+      const newlyFailedTitles = [];
+      const warningsToSend = [];
 
-          // Автофейл при просрочке (прежняя логика).
-          if (msLeft <= 0) {
-            newFailed.push(task.id);
-            newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
-            newlyFailedTitles.push(task.title);
-            continue;
-          }
+      for (const task of s.tasks) {
+        if (!task.deadlineAt) continue;
+        if (currentFailed.has(task.id)) continue;
+        if (currentCompleted.has(task.id)) continue;
+        if (currentPending.has(task.id)) continue;
 
-          const hoursLeft = msLeft / 3600000;
-          const taskWarned = warned[task.id] || {};
+        const msLeft = task.deadlineAt - now;
 
-          // 6-часовое окно: срабатываем когда времени ≤6ч, но >1ч
-          // (иначе при создании таски с дедлайном меньше 6ч
-          //  придёт и 6ч-, и 1ч-уведомление почти одновременно).
-          if (hoursLeft <= 6 && hoursLeft > 1 && !taskWarned["6h"]) {
-            warned[task.id] = { ...taskWarned, "6h": true };
-            warnedChanged = true;
-            warningsToSend.push({ title: task.title, kind: "6h", hoursLeft });
-          }
-
-          // 1-часовое окно: ≤1ч осталось и ещё не слали.
-          if (hoursLeft <= 1 && !taskWarned["1h"]) {
-            warned[task.id] = { ...(warned[task.id] || {}), "1h": true };
-            warnedChanged = true;
-            warningsToSend.push({ title: task.title, kind: "1h", hoursLeft });
-          }
+        // Автофейл при просрочке.
+        if (msLeft <= 0) {
+          newFailed.push(task.id);
+          newLogs.push({ id: crypto.randomUUID(), type: "fail", text: `💀 Задание «${task.title}» провалено — дедлайн истёк`, ts: Date.now() });
+          newlyFailedTitles.push(task.title);
+          continue;
         }
 
-        if (warnedChanged) saveWarned(warned);
+        const hoursLeft = msLeft / 3600000;
+        const taskWarned = warned[task.id] || {};
 
-        if (newFailed.length === 0) return s;
-        return {
-          ...s,
+        // 6-часовое окно: срабатываем когда времени ≤6ч, но >1ч
+        // (иначе при создании таски с дедлайном меньше 6ч придёт
+        // и 6ч-, и 1ч-уведомление почти одновременно).
+        if (hoursLeft <= 6 && hoursLeft > 1 && !taskWarned["6h"]) {
+          warned[task.id] = { ...taskWarned, "6h": true };
+          warnedChanged = true;
+          warningsToSend.push({ title: task.title, kind: "6h", hoursLeft });
+        }
+
+        // 1-часовое окно: ≤1ч осталось и ещё не слали.
+        if (hoursLeft <= 1 && !taskWarned["1h"]) {
+          warned[task.id] = { ...(warned[task.id] || {}), "1h": true };
+          warnedChanged = true;
+          warningsToSend.push({ title: task.title, kind: "1h", hoursLeft });
+        }
+      }
+
+      if (warnedChanged) saveWarned(warned);
+
+      // Обновляем стейт только если есть новые провалы.
+      // Чистый updater-callback (без сайд-эффектов внутри), поэтому
+      // безопасен для StrictMode.
+      if (newFailed.length > 0) {
+        setSt(prev => ({
+          ...prev,
           sergei: {
-            ...s.sergei,
-            failedTasks: [...(s.sergei.failedTasks || []), ...newFailed],
-            log: [...newLogs, ...s.sergei.log].slice(0, 100),
+            ...prev.sergei,
+            failedTasks: [...(prev.sergei.failedTasks || []), ...newFailed],
+            log: [...newLogs, ...prev.sergei.log].slice(0, 100),
           },
-        };
-      });
+        }));
+      }
 
-      // Отправляем в Telegram после обновления стейта.
+      // Telegram-отправку делаем ПОСЛЕ setSt, вне updater'а.
       for (const title of newlyFailedTitles) {
         sendToTelegram(`💀 Задание «${title}» провалено — дедлайн истёк`);
       }
@@ -143,6 +200,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
         }
       }
     };
+
     checkDeadlines();
     const id = setInterval(checkDeadlines, 60000);
     return () => clearInterval(id);
@@ -190,45 +248,27 @@ export default function TasksScreen({ st, setSt, showToast }) {
     sendToTelegram(`↩️ <b>${st.sergei.name}</b> отменил задание «${task.title}»`);
   };
 
-  const TaskRow = ({ task, isFailed }) => {
+  const renderRow = (task, isFailed) => {
     const isPending = pendingIds.includes(task.id);
-    const isDone    = isDoneTask(task);
+    const isDone = isDoneTask(task);
     const deadlineLabel = task.deadlineAt ? formatDeadlineLeft(task.deadlineAt) : null;
-    const isOverdue = deadlineLabel === "🔴 Просрочено";
     return (
-      <div
-        onClick={() => !isFailed && setSelectedTask(task)}
-        style={{
-          background: isFailed ? "linear-gradient(135deg,#2d0a0a,#1a0505)" : isDone ? "linear-gradient(135deg,#031a10,#042a18)" : isPending ? "linear-gradient(135deg,#1c1407,#120c00)" : "linear-gradient(135deg,#0f172a,#020617)",
-          border: isFailed ? "1px solid #7f1d1d55" : isDone ? "1px solid #134e2a55" : isPending ? "1px solid #78350f55" : "1px solid #1e3a5f",
-          borderRadius: 20, padding: 16, marginBottom: 10, animation: "fadeUp .3s ease both", cursor: isFailed ? "default" : "pointer", opacity: isDone ? 0.65 : 1,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <span style={{ fontSize: 28, flexShrink: 0 }}>{task.emoji}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, color: isFailed ? "#f87171" : "#f1f5f9", marginBottom: 2 }}>{task.title}</div>
-            {task.description && <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.description}</div>}
-            <div style={{ fontSize: 11, color: "#334155", fontWeight: 700 }}>
-              {task.category} • {task.difficulty === "easy" ? "🟢 Лёгкое" : task.difficulty === "medium" ? "🟡 Среднее" : "🔴 Сложное"}
-            </div>
-            {deadlineLabel && !isDone && (
-              <div style={{ fontSize: 11, fontWeight: 800, color: isOverdue ? "#f87171" : "#fbbf24", marginTop: 3 }}>
-                {deadlineLabel}
-              </div>
-            )}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-            <span style={{ color: "#fbbf24", fontWeight: 900, fontSize: 15 }}>💰 {task.reward}</span>
-            {isFailed    ? <span style={{ color: "#f87171", fontWeight: 800, fontSize: 11 }}>💀 Провалено</span>
-            : isDone    ? <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 11 }}>✅ Выполнено</span>
-            : isPending ? <span style={{ color: "#fbbf24", fontWeight: 800, fontSize: 11 }}>⏳ Проверка</span>
-            :             <span style={{ color: "#38bdf8", fontWeight: 800, fontSize: 11 }}>Нажми →</span>}
-          </div>
-        </div>
-      </div>
+      <TaskRow
+        key={task.id}
+        task={task}
+        isFailed={isFailed}
+        isPending={isPending}
+        isDone={isDone}
+        deadlineLabel={deadlineLabel}
+        // Клик открывает карточку ВСЕГДА (в том числе для проваленных) —
+        // раньше проваленные были некликабельны, и пользователи думали,
+        // что «клик не работает».
+        onClick={() => setSelectedTask(task)}
+      />
     );
   };
+
+  const selectedIsFailed = selectedTask ? failedTaskIds.has(selectedTask.id) : false;
 
   return (
     <div style={{ padding: "20px 16px", paddingBottom: 100 }}>
@@ -237,6 +277,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
           task={selectedTask}
           isPending={pendingIds.includes(selectedTask.id)}
           isDone={isDoneTask(selectedTask)}
+          isFailed={selectedIsFailed}
           onClose={() => setSelectedTask(null)}
           onSubmit={submitTask}
           onCancel={() => cancelTask(selectedTask)}
@@ -248,10 +289,10 @@ export default function TasksScreen({ st, setSt, showToast }) {
           <button key={c} onClick={() => setFilter(c)} style={{ flexShrink: 0, padding: "6px 16px", borderRadius: 99, border: filter === c ? "none" : "1px solid #1e3a5f", background: filter === c ? "#0ea5e9" : "#0f172a", color: filter === c ? "#020617" : "#475569", fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer", boxShadow: filter === c ? "0 2px 14px #38bdf855" : "none" }}>{c}</button>
         ))}
       </div>
-      {activeTasks.length === 0 && doneTasks.length === 0 && (
+      {activeTasks.length === 0 && doneTasks.length === 0 && failedTasks.length === 0 && (
         <div style={{ textAlign: "center", padding: 40, color: "#334155" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📭</div><div style={{ fontWeight: 700 }}>Нет заданий</div></div>
       )}
-      {activeTasks.map(task => <TaskRow key={task.id} task={task} />)}
+      {activeTasks.map(task => renderRow(task, false))}
       {failedTasks.length > 0 && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 10 }}>
@@ -259,7 +300,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
             <span style={{ fontSize: 12, fontWeight: 800, color: "#f87171", textTransform: "uppercase", letterSpacing: ".05em" }}>💀 Провалено ({failedTasks.length})</span>
             <div style={{ flex: 1, height: 1, background: "#7f1d1d33" }} />
           </div>
-          {failedTasks.map(task => <TaskRow key={task.id} task={task} isFailed />)}
+          {failedTasks.map(task => renderRow(task, true))}
         </>
       )}
       {doneTasks.length > 0 && (
@@ -269,7 +310,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
             <span style={{ fontSize: 12, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: ".05em" }}>✅ Выполнено ({doneTasks.length})</span>
             <div style={{ flex: 1, height: 1, background: "#134e2a33" }} />
           </div>
-          {doneTasks.map(task => <TaskRow key={task.id} task={task} />)}
+          {doneTasks.map(task => renderRow(task, false))}
         </>
       )}
     </div>

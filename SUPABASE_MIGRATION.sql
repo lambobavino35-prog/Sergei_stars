@@ -194,3 +194,11 @@ begin
     when duplicate_object then null;
   end;
 end $$;
+
+-- ══════════════════════════════════════════════════════════════
+--  MIGRATION v5 — TELEGRAM MUTE (глобальный тумблер из админки)
+--  Храним флаг в профиле, чтобы мьют синкался между устройствами.
+--  Без этой колонки PATCH из setTelegramMuted молча фейлится
+--  (400 unknown column) — тумблер «не залипает».
+-- ══════════════════════════════════════════════════════════════
+alter table sq_profile add column if not exists telegram_muted boolean not null default false;

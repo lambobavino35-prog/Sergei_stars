@@ -1,6 +1,16 @@
-export default function TaskCard({ task, isPending, isDone, onClose, onSubmit, onCancel }) {
+import { createPortal } from "react-dom";
+
+export default function TaskCard({ task, isPending, isDone, isFailed, onClose, onSubmit, onCancel }) {
   const diffLabel = task.difficulty === "easy" ? "🟢 Лёгкое" : task.difficulty === "medium" ? "🟡 Среднее" : "🔴 Сложное";
-  return (
+
+  // ВАЖНО: рендерим модалку через portal в document.body.
+  // Родительский scroll-контейнер в App.jsx имеет transform: translateY(...),
+  // а по спецификации CSS это делает его containing block'ом для
+  // position:fixed потомков → модалка прилипала к контейнеру, а не к вьюпорту,
+  // и на маленьких/прокрученных экранах оказывалась вне видимой области
+  // (или кликалась «в никуда»). Портал в body гарантирует, что position:fixed
+  // работает как и задумывалось — относительно окна браузера.
+  const modal = (
     <div style={{
       position: "fixed", inset: 0, zIndex: 200,
       background: "rgba(2,6,23,.88)", backdropFilter: "blur(12px)",
@@ -33,7 +43,11 @@ export default function TaskCard({ task, isPending, isDone, onClose, onSubmit, o
             {task.description}
           </div>
         )}
-        {isDone ? (
+        {isFailed ? (
+          <div style={{ textAlign: "center", padding: "16px", background: "#2d0a0a", border: "1px solid #7f1d1d", borderRadius: 14, color: "#f87171", fontWeight: 800 }}>
+            💀 Задание провалено — дедлайн истёк
+          </div>
+        ) : isDone ? (
           <div style={{ textAlign: "center", padding: "16px", background: "#031a10", border: "1px solid #134e2a", borderRadius: 14, color: "#4ade80", fontWeight: 800 }}>✅ Задание выполнено</div>
         ) : isPending ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -46,4 +60,8 @@ export default function TaskCard({ task, isPending, isDone, onClose, onSubmit, o
       </div>
     </div>
   );
+
+  // SSR-safe: document может отсутствовать на сервере.
+  if (typeof document === "undefined") return modal;
+  return createPortal(modal, document.body);
 }
