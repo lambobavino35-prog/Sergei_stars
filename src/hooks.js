@@ -283,6 +283,11 @@ function mapPurchasedRewardRow(r) {
     rewardId: r.reward_id,
     title:    r.title,
     emoji:    r.emoji,
+    // cost/category теперь тоже едут с сервера (см. migration v6).
+    // Для старых строк, где их ещё нет в БД, будут undefined —
+    // UI терпим к этому (проверяем || "Другое", и просто не рисуем 💰 если нет).
+    cost:     r.cost != null ? r.cost : undefined,
+    category: r.category || undefined,
     boughtAt: new Date(r.bought_at).getTime(),
   };
 }
@@ -324,7 +329,11 @@ export function useSupabaseSync(st, setSt, user) {
         sbGet("sq_tasks", "?select=*&order=created_at.asc"),
         sbGet("sq_rewards", "?select=*&order=created_at.asc"),
         sbGet("sq_pending", "?select=*&order=submitted_at.asc"),
-        sbGet("sq_log", "?select=*&order=ts.desc&limit=100"),
+        // Поднимаем лимит с 100 до 500 — в UI мы всё равно срезаем
+        // через .slice(0, 500), но хранить в локальном стейте больше
+        // БЕЗОПАСНО, а главное — push() больше не будет затирать
+        // хвост в БД (см. ниже: sbDelete из push убран).
+        sbGet("sq_log", "?select=*&order=ts.desc&limit=500"),
         sbGet("sq_custom_tiers", "?select=*&order=id.asc"),
         sbGet("sq_purchased_rewards", "?select=*&order=bought_at.desc"),
         // Без limit'а: раньше стоял limit=200 и при накоплении истории
@@ -455,7 +464,7 @@ export function useSupabaseSync(st, setSt, user) {
       setSt(local => {
         skipPush.current = true;
         const currentLog = local.sergei.log || [];
-        const updatedLog = applyArrayChange(currentLog, payload, mapLogRow).slice(0, 100);
+        const updatedLog = applyArrayChange(currentLog, payload, mapLogRow).slice(0, 500);
         const next = {
           ...local,
           sergei: { ...local.sergei, log: updatedLog },
@@ -596,13 +605,13 @@ export function useSupabaseSync(st, setSt, user) {
             reaction: l.reaction || null,
           }))
         ),
-        // Удаляем старые записи лога за пределами среза 100
-        s.sergei.log.length > 0 && (async () => {
-          const oldest = s.sergei.log[s.sergei.log.length - 1];
-          if (oldest) {
-            await sbDelete("sq_log", `ts=lt.${encodeURIComponent(new Date(oldest.ts).toISOString())}&id=neq.${oldest.id}`);
-          }
-        })(),
+        // ⚠️ РАНЬШЕ ТУТ было sbDelete("sq_log", ts=lt.<самая_старая_локально>) —
+        // считалось, что в локальный стейт и так не попадает больше 100
+        // записей (везде стоит slice(0, 100)), а старые можно чистить.
+        // НО: initialPull берёт из БД только последние N записей. Если
+        // в БД накопилось больше, локально есть только хвост, и этот
+        // DELETE при первом же push'е УНИЧТОЖАЛ всю старую историю в БД.
+        // Теперь историю не чистим — пусть копится; размер лога не проблема.
         // Кастомные тиры
         (s.customTiers || []).length > 0 && sbUpsert("sq_custom_tiers",
           s.customTiers.map(ct => ({
@@ -615,7 +624,9 @@ export function useSupabaseSync(st, setSt, user) {
             label:     ct.label || "Кастомный",
           }))
         ),
-        // Купленные награды
+        // Купленные награды. cost/category раньше не ехали в БД —
+        // после realtime pull у Сергея они становились undefined, а в UI
+        // «💰 {r.cost}» превращалось в «💰 undefined». См. migration v6.
         (s.sergei.purchasedRewards || []).length > 0 && sbUpsert("sq_purchased_rewards",
           s.sergei.purchasedRewards
             .filter(r => r.id && r.rewardId)
@@ -624,6 +635,8 @@ export function useSupabaseSync(st, setSt, user) {
               reward_id: r.rewardId,
               title:     r.title,
               emoji:     r.emoji || "🎁",
+              cost:      r.cost != null ? r.cost : null,
+              category:  r.category || null,
               bought_at: new Date(r.boughtAt || Date.now()).toISOString(),
             }))
         ),

@@ -202,3 +202,13 @@ end $$;
 --  (400 unknown column) — тумблер «не залипает».
 -- ══════════════════════════════════════════════════════════════
 alter table sq_profile add column if not exists telegram_muted boolean not null default false;
+
+-- ══════════════════════════════════════════════════════════════
+--  MIGRATION v6 — COST / CATEGORY для купленных наград
+--  Эти поля писались локально в st.sergei.purchasedRewards,
+--  но в БД колонок не было. После первого же initialPull'а
+--  клиент терял cost/category, UI рисовал «💰 undefined» и
+--  сваливал всю историю покупок в категорию «Другое».
+-- ══════════════════════════════════════════════════════════════
+alter table sq_purchased_rewards add column if not exists cost integer;
+alter table sq_purchased_rewards add column if not exists category text;

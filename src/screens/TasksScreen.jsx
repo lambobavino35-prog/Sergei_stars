@@ -143,6 +143,20 @@ export default function TasksScreen({ st, setSt, showToast }) {
 
       const currentFailed = new Set(s.sergei.failedTasks || []);
       const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
+      // Fallback по логу — та же логика, что и в isDoneTask ниже.
+      // Если запись в sq_completed_tasks ещё не прошла realtime, но
+      // в логе уже есть «earn» — НЕ помечаем задание как failed,
+      // иначе оно одновременно станет «✅ Выполнено» (через лог)
+      // и «💀 Провалено» (по дедлайну).
+      const completedTitles = new Set(
+        (s.sergei.log || [])
+          .filter(l => l.type === "earn")
+          .map(l => {
+            const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
+            return m ? m[1] : null;
+          })
+          .filter(Boolean)
+      );
       const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
 
       const knownIds = new Set(s.tasks.map(t => t.id));
@@ -158,6 +172,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
         if (!task.deadlineAt) continue;
         if (currentFailed.has(task.id)) continue;
         if (currentCompleted.has(task.id)) continue;
+        if (completedTitles.has(task.title)) continue; // log-fallback
         if (currentPending.has(task.id)) continue;
 
         const msLeft = task.deadlineAt - now;
@@ -201,7 +216,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
           sergei: {
             ...prev.sergei,
             failedTasks: [...(prev.sergei.failedTasks || []), ...newFailed],
-            log: [...newLogs, ...prev.sergei.log].slice(0, 100),
+            log: [...newLogs, ...prev.sergei.log].slice(0, 500),
           },
         }));
       }
@@ -240,7 +255,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
       pendingTasks: [...(s.pendingTasks || []), entry],
       sergei: {
         ...s.sergei,
-        log: [{ id: crypto.randomUUID(), type: "submit", text: `📤 Отправил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "submit", text: `📤 Отправил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       },
     }));
     showToast(`📤 «${task.title}» отправлено на проверку!`, "info");
@@ -260,7 +275,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
       pendingTasks: s.pendingTasks.filter(p => !(p.taskId === task.id && p.userId === "sergei")),
       sergei: {
         ...s.sergei,
-        log: [{ id: crypto.randomUUID(), type: "cancel", text: `↩️ Отменил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "cancel", text: `↩️ Отменил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       },
     }));
     showToast(`↩️ «${task.title}» отменено`, "info");

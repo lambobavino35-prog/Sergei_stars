@@ -84,7 +84,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
         totalEarned:    newTotalEarned,
         failedTasks:    newFailedTasks,
         completedTasks: [...s.sergei.completedTasks, completedEntry],
-        log: [logEntry, ...s.sergei.log].slice(0, 100),
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       },
     }));
     insertNotification("✅ Задание одобрено!", `«${task.title}» +${task.reward} 💰`);
@@ -107,7 +107,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
       pendingTasks: s.pendingTasks.filter(p => p.id !== entry.id),
       sergei: {
         ...s.sergei,
-        log: [logEntry, ...s.sergei.log].slice(0, 100),
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       },
     }));
     insertNotification("❌ Задание отклонено", `«${task?.title || "—"}»`);
@@ -186,7 +186,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const addManual = () => {
     const n = parseInt(manualCoins);
     if (!n || n === 0) return showToast("Введи кол-во монет", "err");
-    setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 100) } }));
+    setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 500) } }));
     if (n > 0) insertNotification("💰 Начисление!", `+${n} монет`);
     setManualCoins(""); showToast(`${n > 0 ? "+" : ""}${n} монет начислено`, "ok");
   };

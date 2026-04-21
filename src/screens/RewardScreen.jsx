@@ -25,7 +25,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         ...s.sergei,
         coins: s.sergei.coins - reward.cost,
         purchasedRewards: [...s.sergei.purchasedRewards, { id: crypto.randomUUID(), rewardId: reward.id, title: reward.title, emoji: reward.emoji, cost: reward.cost, category: reward.category, boughtAt: Date.now() }],
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `🎁 Куплена награда «${reward.title}»`, amount: -reward.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "buy", text: `🎁 Куплена награда «${reward.title}»`, amount: -reward.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       }
     }));
     const rect = e.currentTarget.getBoundingClientRect();
@@ -43,7 +43,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         ...s.sergei,
         coins: s.sergei.coins - price,
         chocolates: (s.sergei.chocolates || 0) + 1,
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `🍫 Куплен батончик`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "buy", text: `🍫 Куплен батончик`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       }
     }));
     const rect = e.currentTarget.getBoundingClientRect();
@@ -61,7 +61,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         ...s.sergei,
         coins: s.sergei.coins - price,
         stars: (s.sergei.stars || 0) + 1,
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `⭐️ Куплена звезда`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "buy", text: `⭐️ Куплена звезда`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       }
     }));
     const rect = e.currentTarget.getBoundingClientRect();
@@ -78,7 +78,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         badgeTier: tier.id,
         claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
         purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Получен тир «${tier.name}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Получен тир «${tier.name}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       }
     }));
     const rect = e.currentTarget.getBoundingClientRect();
@@ -98,7 +98,7 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
         badgeTier: tier.id,
         claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
         purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Куплен тир «${tier.name}»`, amount: -tier.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 100),
+        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Куплен тир «${tier.name}»`, amount: -tier.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
       }
     }));
     const rect = e.currentTarget.getBoundingClientRect();
@@ -327,9 +327,11 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
                         {new Date(r.boughtAt).toLocaleDateString("ru-RU", { day: "2-digit", month: "long" })}
                       </div>
                     </div>
-                    <div style={{ background: "#052e16", border: "1px solid #134e2a", borderRadius: 10, padding: "4px 10px", color: "#fbbf24", fontWeight: 900, fontSize: 13, flexShrink: 0 }}>
-                      💰 {r.cost}
-                    </div>
+                    {r.cost != null && (
+                      <div style={{ background: "#052e16", border: "1px solid #134e2a", borderRadius: 10, padding: "4px 10px", color: "#fbbf24", fontWeight: 900, fontSize: 13, flexShrink: 0 }}>
+                        💰 {r.cost}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
