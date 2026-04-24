@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BADGE_TIERS } from "../constants";
+import { patchProfile } from "../hooks";
 import Badge from "../components/Badge";
 
 export default function ProfileScreen({ st, setSt, fireBurst, showToast }) {
@@ -19,12 +20,15 @@ export default function ProfileScreen({ st, setSt, fireBurst, showToast }) {
 
   const selectBadge = (tierId) => {
     setSt(s => ({ ...s, sergei: { ...s.sergei, badgeTier: tierId } }));
+    patchProfile({ badge_tier: tierId });
     showToast("Бейдж выбран! ✨");
   };
 
   const saveName = () => {
-    if (!nameVal.trim()) return showToast("Введи имя!", "err");
-    setSt(s => ({ ...s, sergei: { ...s.sergei, name: nameVal.trim() } }));
+    const trimmed = nameVal.trim();
+    if (!trimmed) return showToast("Введи имя!", "err");
+    setSt(s => ({ ...s, sergei: { ...s.sergei, name: trimmed } }));
+    patchProfile({ name: trimmed });
     setEditing(null); showToast("Имя обновлено! ✅");
   };
 
@@ -32,6 +36,7 @@ export default function ProfileScreen({ st, setSt, fireBurst, showToast }) {
     if (pinVal.length !== 4 || !/^\d{4}$/.test(pinVal)) return showToast("PIN — 4 цифры", "err");
     if (pinVal !== pinConfirm) return showToast("PIN не совпадает", "err");
     setSt(s => ({ ...s, sergei: { ...s.sergei, pin: pinVal } }));
+    patchProfile({ pin: pinVal });
     setPinVal(""); setPinConfirm(""); setEditing(null);
     showToast("PIN изменён! 🔐");
   };

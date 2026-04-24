@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { BADGE_TIERS } from "../constants";
-import { sendToTelegram } from "../hooks";
+import { sendToTelegram, patchProfile, appendLog, insertPurchasedReward } from "../hooks";
 import Badge from "../components/Badge";
 
 export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
@@ -19,15 +19,36 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
     if (reward.oneTime && purchasedRewards.some(p => p.rewardId === reward.id || p.id === reward.id)) {
       return showToast("Эта награда уже куплена 🔒", "info");
     }
+    const newCoins = st.sergei.coins - reward.cost;
+    const purchaseEntry = {
+      id: crypto.randomUUID(),
+      rewardId: reward.id,
+      title: reward.title,
+      emoji: reward.emoji,
+      cost: reward.cost,
+      category: reward.category,
+      boughtAt: Date.now(),
+    };
+    const logEntry = {
+      id: crypto.randomUUID(),
+      type: "buy",
+      text: `🎁 Куплена награда «${reward.title}»`,
+      amount: -reward.cost,
+      ts: Date.now(),
+    };
     setSt(s => ({
       ...s,
       sergei: {
         ...s.sergei,
-        coins: s.sergei.coins - reward.cost,
-        purchasedRewards: [...s.sergei.purchasedRewards, { id: crypto.randomUUID(), rewardId: reward.id, title: reward.title, emoji: reward.emoji, cost: reward.cost, category: reward.category, boughtAt: Date.now() }],
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `🎁 Куплена награда «${reward.title}»`, amount: -reward.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        coins: newCoins,
+        purchasedRewards: [...s.sergei.purchasedRewards, purchaseEntry],
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       }
     }));
+    // Точечные записи в Supabase — без них debounced push больше ничего не догонит.
+    patchProfile({ coins: newCoins });
+    insertPurchasedReward(purchaseEntry);
+    appendLog(logEntry);
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["🎉","✨","🎁","💫","⭐"], rect.left + rect.width / 2, rect.top);
     showToast(`🎁 «${reward.title}» получена!`, "ok");
@@ -37,15 +58,20 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const buyChocolate = (e) => {
     const price = currencyShop.chocolate.price;
     if (coins < price) return showToast(`Нужно ещё ${price - coins} монет 💰`, "err");
+    const newCoins = st.sergei.coins - price;
+    const newChocolates = (st.sergei.chocolates || 0) + 1;
+    const logEntry = { id: crypto.randomUUID(), type: "buy", text: `🍫 Куплен батончик`, amount: -price, ts: Date.now() };
     setSt(s => ({
       ...s,
       sergei: {
         ...s.sergei,
-        coins: s.sergei.coins - price,
-        chocolates: (s.sergei.chocolates || 0) + 1,
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `🍫 Куплен батончик`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        coins: newCoins,
+        chocolates: newChocolates,
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       }
     }));
+    patchProfile({ coins: newCoins, chocolates: newChocolates });
+    appendLog(logEntry);
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["🍫","✨","🎉"], rect.left + rect.width / 2, rect.top);
     showToast("🍫 Батончик получен!", "ok");
@@ -55,15 +81,20 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const buyStar = (e) => {
     const price = currencyShop.star.price;
     if (coins < price) return showToast(`Нужно ещё ${price - coins} монет 💰`, "err");
+    const newCoins = st.sergei.coins - price;
+    const newStars = (st.sergei.stars || 0) + 1;
+    const logEntry = { id: crypto.randomUUID(), type: "buy", text: `⭐️ Куплена звезда`, amount: -price, ts: Date.now() };
     setSt(s => ({
       ...s,
       sergei: {
         ...s.sergei,
-        coins: s.sergei.coins - price,
-        stars: (s.sergei.stars || 0) + 1,
-        log: [{ id: crypto.randomUUID(), type: "buy", text: `⭐️ Куплена звезда`, amount: -price, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        coins: newCoins,
+        stars: newStars,
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       }
     }));
+    patchProfile({ coins: newCoins, stars: newStars });
+    appendLog(logEntry);
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(["⭐","🌟","✨","💫"], rect.left + rect.width / 2, rect.top);
     showToast("⭐️ Звезда получена!", "ok");
@@ -71,16 +102,24 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   };
 
   const claimTier = (tier, e) => {
+    const newClaimedTiers = [...(st.sergei.claimedTiers || [0]), tier.id];
+    const logEntry = { id: crypto.randomUUID(), type: "tier", text: `🏆 Получен тир «${tier.name}»`, ts: Date.now() };
     setSt(s => ({
       ...s,
       sergei: {
         ...s.sergei,
         badgeTier: tier.id,
-        claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Получен тир «${tier.name}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        claimedTiers: newClaimedTiers,
+        purchasedTiers: newClaimedTiers,
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       }
     }));
+    patchProfile({
+      badge_tier: tier.id,
+      claimed_tiers: newClaimedTiers,
+      purchased_tiers: newClaimedTiers,
+    });
+    appendLog(logEntry);
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(tier.particles || ["✨","💫","🌟"], rect.left + rect.width / 2, rect.top);
     showToast("🔥 Новый тир получен!", "ok");
@@ -90,17 +129,27 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
   const buyCustomTier = (tier, e) => {
     if (claimedTiers.includes(tier.id)) return showToast("Уже куплено!", "info");
     if (coins < tier.cost) return showToast(`Нужно ещё ${tier.cost - coins} монет 💰`, "err");
+    const newCoins = st.sergei.coins - tier.cost;
+    const newClaimedTiers = [...(st.sergei.claimedTiers || [0]), tier.id];
+    const logEntry = { id: crypto.randomUUID(), type: "tier", text: `🏆 Куплен тир «${tier.name}»`, amount: -tier.cost, ts: Date.now() };
     setSt(s => ({
       ...s,
       sergei: {
         ...s.sergei,
-        coins: s.sergei.coins - tier.cost,
+        coins: newCoins,
         badgeTier: tier.id,
-        claimedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        purchasedTiers: [...(s.sergei.claimedTiers || [0]), tier.id],
-        log: [{ id: crypto.randomUUID(), type: "tier", text: `🏆 Куплен тир «${tier.name}»`, amount: -tier.cost, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        claimedTiers: newClaimedTiers,
+        purchasedTiers: newClaimedTiers,
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       }
     }));
+    patchProfile({
+      coins: newCoins,
+      badge_tier: tier.id,
+      claimed_tiers: newClaimedTiers,
+      purchased_tiers: newClaimedTiers,
+    });
+    appendLog(logEntry);
     const rect = e.currentTarget.getBoundingClientRect();
     fireBurst(tier.particles || ["✨","💫","🌟"], rect.left + rect.width / 2, rect.top);
     showToast(`🔥 Новый тир «${tier.name}»!`, "ok");
@@ -412,7 +461,10 @@ export default function RewardScreen({ st, setSt, fireBurst, showToast }) {
                           <>
                             <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 13 }}>✅ Куплено</span>
                             {st.sergei.badgeTier !== tier.id && (
-                              <button onClick={() => setSt(s => ({ ...s, sergei: { ...s.sergei, badgeTier: tier.id } }))} style={{ padding: "5px 12px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>Надеть</button>
+                              <button onClick={() => {
+                                setSt(s => ({ ...s, sergei: { ...s.sergei, badgeTier: tier.id } }));
+                                patchProfile({ badge_tier: tier.id });
+                              }} style={{ padding: "5px 12px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>Надеть</button>
                             )}
                           </>
                         ) : needMore ? (

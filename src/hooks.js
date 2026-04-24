@@ -304,8 +304,6 @@ export function useSupabaseSync(st, setSt, user) {
   const [syncStatus, setSyncStatus] = useState("online");
   const stRef = useRef(st);
   const initialized = useRef(false);
-  const skipPush = useRef(false);
-  const pushTimer = useRef(null);
 
   useEffect(() => { stRef.current = st; }, [st]);
 
@@ -368,7 +366,6 @@ export function useSupabaseSync(st, setSt, user) {
           telegramMuted:  extractTelegramMuted(p),
         };
         if (JSON.stringify(local) === JSON.stringify(next)) return local;
-        skipPush.current = true;
         saveState(next);
         return next;
       });
@@ -413,7 +410,6 @@ export function useSupabaseSync(st, setSt, user) {
       // следующий sendToTelegram уже увидит свежее значение.
       applyTelegramMutedFromServer(p.telegram_muted);
       setSt(local => {
-        skipPush.current = true;
         const next = {
           ...local,
           sergei: { ...local.sergei, ...mapProfileRow(p) },
@@ -429,7 +425,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Tasks
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_tasks" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const next = { ...local, tasks: applyArrayChange(local.tasks, payload, mapTaskRow) };
         saveState(next);
         return next;
@@ -439,7 +434,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Rewards
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_rewards" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const next = { ...local, rewards: applyArrayChange(local.rewards, payload, mapRewardRow) };
         saveState(next);
         return next;
@@ -449,7 +443,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Pending
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_pending" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const next = {
           ...local,
           pendingTasks: applyArrayChange(local.pendingTasks || [], payload, mapPendingRow),
@@ -462,7 +455,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Log
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_log" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const currentLog = local.sergei.log || [];
         const updatedLog = applyArrayChange(currentLog, payload, mapLogRow).slice(0, 500);
         const next = {
@@ -477,7 +469,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Custom tiers
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_custom_tiers" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const next = {
           ...local,
           customTiers: applyArrayChange(local.customTiers || [], payload, mapCustomTierRow),
@@ -490,7 +481,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Purchased rewards
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_purchased_rewards" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const current = local.sergei.purchasedRewards || [];
         const next = {
           ...local,
@@ -507,7 +497,6 @@ export function useSupabaseSync(st, setSt, user) {
     // Completed tasks
     channel.on("postgres_changes", { event: "*", schema: "public", table: "sq_completed_tasks" }, (payload) => {
       setSt(local => {
-        skipPush.current = true;
         const current = local.sergei.completedTasks || [];
         const next = {
           ...local,
@@ -534,144 +523,37 @@ export function useSupabaseSync(st, setSt, user) {
     };
   }, [setSt]);
 
-  // ─── PUSH ─────────────────────────────────────────────────────
-  // Debounced push после изменений — дождаться, и записать всё целиком.
-  // Это та же логика, что была — просто теперь работает на изменениях,
-  // которые приходят локально (от действий юзера), а не от pull.
-  const push = useCallback(async () => {
-    if (!SUPABASE_ENABLED) return;
-    const s = stRef.current;
-    try {
-      setSyncStatus("syncing");
-      await Promise.all([
-        // Профиль — один upsert для всех скалярных полей
-        sbUpsert("sq_profile", {
-          id:              "sergei",
-          name:            s.sergei.name,
-          pin:             s.sergei.pin,
-          admin_pin:       s.admin?.pin || "0000",
-          coins:           s.sergei.coins,
-          chocolates:      s.sergei.chocolates || 0,
-          stars:           s.sergei.stars || 0,
-          badge_tier:      s.sergei.badgeTier,
-          purchased_tiers: s.sergei.claimedTiers || [0],
-          claimed_tiers:   s.sergei.claimedTiers || [0],
-          failed_tasks:    s.sergei.failedTasks || [],
-          total_earned:    s.sergei.totalEarned || 0,
-          currency_shop:   s.currencyShop,
-          updated_at:      new Date().toISOString(),
-        }),
-        // Задания
-        s.tasks.length > 0 && sbUpsert("sq_tasks",
-          s.tasks.map(t => ({
-            id:          t.id,
-            title:       t.title,
-            description: t.description || "",
-            reward:      t.reward,
-            emoji:       t.emoji,
-            category:    t.category,
-            difficulty:  t.difficulty,
-            deadline_at: t.deadlineAt ? new Date(t.deadlineAt).toISOString() : null,
-          }))
-        ),
-        // Награды
-        s.rewards.length > 0 && sbUpsert("sq_rewards",
-          s.rewards.map(r => ({
-            id:        r.id,
-            title:     r.title,
-            cost:      r.cost,
-            emoji:     r.emoji,
-            category:  r.category,
-            one_time:  r.oneTime || false,
-          }))
-        ),
-        // Pending
-        (s.pendingTasks || []).length > 0 && sbUpsert("sq_pending",
-          s.pendingTasks.map(p => ({
-            id:           p.id,
-            task_id:      p.taskId,
-            submitted_at: new Date(p.submittedAt).toISOString(),
-          }))
-        ),
-        // Лог
-        s.sergei.log.length > 0 && sbUpsert("sq_log",
-          s.sergei.log.map(l => ({
-            id:       l.id,
-            type:     l.type,
-            text:     l.text,
-            amount:   l.amount || 0,
-            ts:       new Date(l.ts).toISOString(),
-            comment:  l.comment || null,
-            reaction: l.reaction || null,
-          }))
-        ),
-        // ⚠️ РАНЬШЕ ТУТ было sbDelete("sq_log", ts=lt.<самая_старая_локально>) —
-        // считалось, что в локальный стейт и так не попадает больше 100
-        // записей (везде стоит slice(0, 100)), а старые можно чистить.
-        // НО: initialPull берёт из БД только последние N записей. Если
-        // в БД накопилось больше, локально есть только хвост, и этот
-        // DELETE при первом же push'е УНИЧТОЖАЛ всю старую историю в БД.
-        // Теперь историю не чистим — пусть копится; размер лога не проблема.
-        // Кастомные тиры
-        (s.customTiers || []).length > 0 && sbUpsert("sq_custom_tiers",
-          s.customTiers.map(ct => ({
-            id:        ct.id,
-            name:      ct.name,
-            cost:      ct.cost,
-            emoji:     ct.emoji || "🔮",
-            model_url: ct.modelUrl || null,
-            particles: ct.particles || ["✨","💫","🌟"],
-            label:     ct.label || "Кастомный",
-          }))
-        ),
-        // Купленные награды. cost/category раньше не ехали в БД —
-        // после realtime pull у Сергея они становились undefined, а в UI
-        // «💰 {r.cost}» превращалось в «💰 undefined». См. migration v6.
-        (s.sergei.purchasedRewards || []).length > 0 && sbUpsert("sq_purchased_rewards",
-          s.sergei.purchasedRewards
-            .filter(r => r.id && r.rewardId)
-            .map(r => ({
-              id:        r.id,
-              reward_id: r.rewardId,
-              title:     r.title,
-              emoji:     r.emoji || "🎁",
-              cost:      r.cost != null ? r.cost : null,
-              category:  r.category || null,
-              bought_at: new Date(r.boughtAt || Date.now()).toISOString(),
-            }))
-        ),
-        // Выполненные задания
-        (s.sergei.completedTasks || []).length > 0 && sbUpsert("sq_completed_tasks",
-          s.sergei.completedTasks.map((c) => ({
-            id:           c.id,
-            task_id:      c.taskId,
-            completed_at: new Date(c.date || Date.now()).toISOString(),
-          }))
-        ),
-      ].filter(Boolean));
-
-      setSyncStatus("online");
-    } catch (e) {
-      console.error("Push error:", e);
-      setSyncStatus("error");
-    }
-  }, []);
-
   // Начальный pull
   useEffect(() => {
     initialPull().finally(() => { initialized.current = true; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced push после изменений
+  // ─── RECATCH-UP на возврат в онлайн/фокус ────────────────────
+  // Supabase Realtime НЕ реплеит пропущенные события. Если WebSocket
+  // отвалился (телефон уснул, Wi-Fi моргнул, вкладка в фоне), любые
+  // изменения на сервере между disconnect и reconnect теряются навсегда.
+  // Лечим это: при возвращении вкладки в активное состояние или при
+  // событии online — заново дёргаем initialPull, чтобы стейт догнал
+  // сервер. Это также страхует от ситуации, когда approve произошёл на
+  // другом устройстве пока Сергей был офлайн.
   useEffect(() => {
     if (!SUPABASE_ENABLED) return;
-    if (!initialized.current) return;
-    if (skipPush.current) { skipPush.current = false; return; }
-    clearTimeout(pushTimer.current);
-    pushTimer.current = setTimeout(push, 400);
-    return () => clearTimeout(pushTimer.current);
-  }, [st, push]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && initialized.current) {
+        initialPull();
+      }
+    };
+    const onOnline = () => {
+      if (initialized.current) initialPull();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [initialPull]);
 
   return syncStatus;
 }
@@ -760,6 +642,119 @@ export async function rejectTask(pendingId, profileUpdates, logEntry) {
     await sbDelete("sq_pending", `id=eq.${pendingId}`);
   } catch (e) {
     console.error("rejectTask error:", e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ТОЧЕЧНЫЕ ХЕЛПЕРЫ — каждое изменение стейта в UI должно
+//  сопровождаться явным вызовом одного из этих хелперов.
+//  После удаления bulk-push'а других путей к Supabase не осталось,
+//  поэтому пропущенный хелпер == потерянное изменение.
+// ══════════════════════════════════════════════════════════════
+
+// Профиль — патчим только указанные поля, не трогая остальные.
+// Принимает ключи в snake_case (совпадают с колонками в БД):
+//   coins, chocolates, stars, name, pin, badge_tier, claimed_tiers,
+//   purchased_tiers, failed_tasks, total_earned, currency_shop, admin_pin.
+export async function patchProfile(updates) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbPatch("sq_profile", "id=eq.sergei", {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("patchProfile error:", e);
+  }
+}
+
+// Добавить запись в лог. Принимает локальный формат (id, type, text, ts, amount, ...).
+export async function appendLog(entry) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_log", [{
+      id:       entry.id,
+      type:     entry.type,
+      text:     entry.text,
+      amount:   entry.amount || 0,
+      ts:       new Date(entry.ts).toISOString(),
+      comment:  entry.comment || null,
+      reaction: entry.reaction || null,
+    }]);
+  } catch (e) {
+    console.error("appendLog error:", e);
+  }
+}
+
+// Купленная награда — INSERT в sq_purchased_rewards.
+export async function insertPurchasedReward(entry) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_purchased_rewards", [{
+      id:        entry.id,
+      reward_id: entry.rewardId,
+      title:     entry.title,
+      emoji:     entry.emoji || "🎁",
+      cost:      entry.cost != null ? entry.cost : null,
+      category:  entry.category || null,
+      bought_at: new Date(entry.boughtAt || Date.now()).toISOString(),
+    }]);
+  } catch (e) {
+    console.error("insertPurchasedReward error:", e);
+  }
+}
+
+// Новое задание — INSERT в sq_tasks.
+export async function insertTask(task) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_tasks", [{
+      id:          task.id,
+      title:       task.title,
+      description: task.description || "",
+      reward:      task.reward,
+      emoji:       task.emoji,
+      category:    task.category,
+      difficulty:  task.difficulty,
+      deadline_at: task.deadlineAt ? new Date(task.deadlineAt).toISOString() : null,
+    }]);
+  } catch (e) {
+    console.error("insertTask error:", e);
+  }
+}
+
+// Новая награда — INSERT в sq_rewards.
+export async function insertReward(reward) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_rewards", [{
+      id:        reward.id,
+      title:     reward.title,
+      cost:      reward.cost,
+      emoji:     reward.emoji,
+      category:  reward.category,
+      one_time:  reward.oneTime || false,
+    }]);
+  } catch (e) {
+    console.error("insertReward error:", e);
+  }
+}
+
+// Новый кастомный тир — INSERT в sq_custom_tiers.
+export async function insertCustomTier(tier) {
+  if (!SUPABASE_ENABLED) return;
+  try {
+    await sbUpsert("sq_custom_tiers", [{
+      id:        tier.id,
+      name:      tier.name,
+      cost:      tier.cost,
+      emoji:     tier.emoji || "🔮",
+      model_url: tier.modelUrl || null,
+      particles: tier.particles || ["✨","💫","🌟"],
+      label:     tier.label || "Кастомный",
+    }]);
+  } catch (e) {
+    console.error("insertCustomTier error:", e);
   }
 }
 

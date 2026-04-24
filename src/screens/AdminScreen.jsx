@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import Badge from "../components/Badge";
-import { deletePending, approveTask, rejectTask, insertNotification, sendToTelegram, setTelegramMuted } from "../hooks";
+import {
+  approveTask, rejectTask, insertNotification, sendToTelegram, setTelegramMuted,
+  patchProfile, appendLog, insertTask, insertReward, insertCustomTier,
+} from "../hooks";
 import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_ENABLED, TELEGRAM_ENABLED } from "../constants";
 
 export default function AdminScreen({ st, setSt, showToast }) {
@@ -118,6 +121,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     if (!newReward.title.trim() || !newReward.cost) return showToast("Заполни все поля", "err");
     const r = { ...newReward, id: crypto.randomUUID(), cost: parseInt(newReward.cost), createdAt: Date.now() };
     setSt(s => ({ ...s, rewards: [...s.rewards, r] }));
+    insertReward(r);
     setNewReward({ title: "", cost: "", emoji: "🎁", category: "Отдых", oneTime: false });
     showToast("🎁 Награда добавлена!", "ok");
   };
@@ -149,6 +153,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
     };
     delete t.deadlineHours;
     setSt(s => ({ ...s, tasks: [...s.tasks, t] }));
+    insertTask(t);
     setNewTask({ title: "", description: "", reward: "", emoji: "⭐", category: "Дом", difficulty: "medium", deadlineHours: "" });
     insertNotification("📋 Новое задание!", `«${t.title}» — ${t.reward} 💰`);
     showToast("📋 Задание добавлено!", "ok");
@@ -186,7 +191,20 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const addManual = () => {
     const n = parseInt(manualCoins);
     if (!n || n === 0) return showToast("Введи кол-во монет", "err");
-    setSt(s => ({ ...s, sergei: { ...s.sergei, coins: Math.max(0, s.sergei.coins + n), totalEarned: n > 0 ? (s.sergei.totalEarned || 0) + n : s.sergei.totalEarned, log: [{ id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() }, ...s.sergei.log].slice(0, 500) } }));
+    const newCoins = Math.max(0, st.sergei.coins + n);
+    const newTotalEarned = n > 0 ? (st.sergei.totalEarned || 0) + n : (st.sergei.totalEarned || 0);
+    const logEntry = { id: crypto.randomUUID(), type: "manual", text: `🛡️ Ручное начисление: ${n > 0 ? "+" : ""}${n} монет`, amount: n, ts: Date.now() };
+    setSt(s => ({
+      ...s,
+      sergei: {
+        ...s.sergei,
+        coins: newCoins,
+        totalEarned: newTotalEarned,
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
+      },
+    }));
+    patchProfile({ coins: newCoins, total_earned: newTotalEarned });
+    appendLog(logEntry);
     if (n > 0) insertNotification("💰 Начисление!", `+${n} монет`);
     setManualCoins(""); showToast(`${n > 0 ? "+" : ""}${n} монет начислено`, "ok");
   };
@@ -194,15 +212,31 @@ export default function AdminScreen({ st, setSt, showToast }) {
   const addManualChocolate = () => {
     const n = parseInt(manualChocolates);
     if (!n || n === 0) return showToast("Введи кол-во", "err");
-    setSt(s => ({ ...s, sergei: { ...s.sergei, chocolates: Math.max(0, (s.sergei.chocolates || 0) + n) } }));
+    const newChocolates = Math.max(0, (st.sergei.chocolates || 0) + n);
+    setSt(s => ({ ...s, sergei: { ...s.sergei, chocolates: newChocolates } }));
+    patchProfile({ chocolates: newChocolates });
     setManualChocolates(""); showToast(`${n > 0 ? "+" : ""}${n} 🍫 обновлено`, "ok");
   };
 
   const addManualStars = () => {
     const n = parseInt(manualStars);
     if (!n || n === 0) return showToast("Введи кол-во", "err");
-    setSt(s => ({ ...s, sergei: { ...s.sergei, stars: Math.max(0, (s.sergei.stars || 0) + n) } }));
+    const newStars = Math.max(0, (st.sergei.stars || 0) + n);
+    setSt(s => ({ ...s, sergei: { ...s.sergei, stars: newStars } }));
+    patchProfile({ stars: newStars });
     setManualStars(""); showToast(`${n > 0 ? "+" : ""}${n} ⭐️ обновлено`, "ok");
+  };
+
+  // ─── currencyShop (сохраняется в колонке sq_profile.currency_shop) ───
+  // Обёртка: точечный setSt + patchProfile, чтобы не забыть синк.
+  const updateCurrencyShop = (patch) => {
+    const next = {
+      ...currencyShop,
+      chocolate: { ...currencyShop.chocolate, ...(patch.chocolate || {}) },
+      star:      { ...currencyShop.star,      ...(patch.star || {}) },
+    };
+    setSt(s => ({ ...s, currencyShop: next }));
+    patchProfile({ currency_shop: next });
   };
 
   const addCustomTier = () => {
@@ -218,6 +252,7 @@ export default function AdminScreen({ st, setSt, showToast }) {
       label: "Кастомный",
     };
     setSt(s => ({ ...s, customTiers: [...(s.customTiers || []), tier] }));
+    insertCustomTier(tier);
     setNewTier({ name: "", cost: "", emoji: "🔮", modelUrl: "", particles: "✨,💫,🌟" });
     showToast("✨ Кастомный тир добавлен!", "ok");
   };
@@ -562,30 +597,14 @@ export default function AdminScreen({ st, setSt, showToast }) {
             <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Все задания ({st.tasks.length})</div>
             {(() => {
               // ─── Определяем выполненность ─────────────────────────
-              // Источник №1 — sq_completed_tasks (st.sergei.completedTasks).
-              // Источник №2 (fallback) — лог «earn». Если запись в
-              // sq_completed_tasks по какой-то причине не проросла
-              // (старые записи до миграции, гонка с pull'ом и т.п.),
-              // а в логе есть «Задание «X» одобрено» — всё равно считаем
-              // задание выполненным. Та же логика, что в TasksScreen,
-              // чтобы у админа и у Сергея картина совпадала.
+              // Источник истины — sq_completed_tasks (st.sergei.completedTasks).
               const completedById = new Map();
               for (const ct of (st.sergei.completedTasks || [])) {
                 const arr = completedById.get(ct.taskId) || [];
                 arr.push(ct);
                 completedById.set(ct.taskId, arr);
               }
-              const earnedTitleToTs = new Map();
-              for (const l of (st.sergei.log || [])) {
-                if (l.type !== "earn") continue;
-                const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
-                if (!m) continue;
-                const title = m[1];
-                const prev = earnedTitleToTs.get(title) || 0;
-                if (l.ts > prev) earnedTitleToTs.set(title, l.ts);
-              }
-              const isDoneTask = (t) =>
-                completedById.has(t.id) || earnedTitleToTs.has(t.title);
+              const isDoneTask = (t) => completedById.has(t.id);
 
               const notDone = st.tasks.filter(t => !isDoneTask(t));
               const done = st.tasks.filter(t => isDoneTask(t));
@@ -593,13 +612,11 @@ export default function AdminScreen({ st, setSt, showToast }) {
               const renderTask = t => {
                 const completions = completedById.get(t.id) || [];
                 const isDone = isDoneTask(t);
-                // Последняя дата — максимум между completedTasks и log-earn.
+                // Последняя дата — максимум из completedTasks.
                 let lastTs = 0;
                 for (const c of completions) {
                   if ((c.date || 0) > lastTs) lastTs = c.date || 0;
                 }
-                const earnedTs = earnedTitleToTs.get(t.title) || 0;
-                if (earnedTs > lastTs) lastTs = earnedTs;
                 return (
                   <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: isDone ? "linear-gradient(90deg,#03180a00,#03180a66)" : "none" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, flex: 1 }}>
@@ -691,14 +708,14 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <div style={{ background: "linear-gradient(135deg,#1c0a00,#2d1500)", border: "1px solid #78350f", borderRadius: 20, padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9" }}>🍫 Батончики</div>
-              <button onClick={() => setSt(s => ({ ...s, currencyShop: { ...s.currencyShop, chocolate: { ...s.currencyShop.chocolate, enabled: !s.currencyShop.chocolate.enabled } } }))} style={{ padding: "6px 14px", background: currencyShop.chocolate.enabled ? "#059669" : "#1e3a5f", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
+              <button onClick={() => updateCurrencyShop({ chocolate: { enabled: !currencyShop.chocolate.enabled } })} style={{ padding: "6px 14px", background: currencyShop.chocolate.enabled ? "#059669" : "#1e3a5f", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
                 {currencyShop.chocolate.enabled ? "✅ Вкл" : "❌ Выкл"}
               </button>
             </div>
             {currencyShop.chocolate.enabled && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 4 }}>Цена за 1 🍫 (в монетах)</div>
-                <input type="number" defaultValue={currencyShop.chocolate.price} onBlur={e => { const v = parseInt(e.target.value); if (v > 0) setSt(s => ({ ...s, currencyShop: { ...s.currencyShop, chocolate: { ...s.currencyShop.chocolate, price: v } } })); }} style={{ width: "100%", padding: "10px 14px", background: "#07111f", border: "1px solid #78350f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }} />
+                <input type="number" defaultValue={currencyShop.chocolate.price} onBlur={e => { const v = parseInt(e.target.value); if (v > 0) updateCurrencyShop({ chocolate: { price: v } }); }} style={{ width: "100%", padding: "10px 14px", background: "#07111f", border: "1px solid #78350f", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }} />
               </div>
             )}
             <div style={{ color: "#92400e", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Баланс: {st.sergei.chocolates || 0} 🍫</div>
@@ -710,14 +727,14 @@ export default function AdminScreen({ st, setSt, showToast }) {
           <div style={{ background: "linear-gradient(135deg,#0a0a2e,#1a1060)", border: "1px solid #4c1d95", borderRadius: 20, padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9" }}>⭐️ Звёзды</div>
-              <button onClick={() => setSt(s => ({ ...s, currencyShop: { ...s.currencyShop, star: { ...s.currencyShop.star, enabled: !s.currencyShop.star.enabled } } }))} style={{ padding: "6px 14px", background: currencyShop.star.enabled ? "#059669" : "#1e3a5f", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
+              <button onClick={() => updateCurrencyShop({ star: { enabled: !currencyShop.star.enabled } })} style={{ padding: "6px 14px", background: currencyShop.star.enabled ? "#059669" : "#1e3a5f", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
                 {currencyShop.star.enabled ? "✅ Вкл" : "❌ Выкл"}
               </button>
             </div>
             {currencyShop.star.enabled && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: "#c084fc", fontWeight: 700, marginBottom: 4 }}>Цена за 1 ⭐️ (в монетах)</div>
-                <input type="number" defaultValue={currencyShop.star.price} onBlur={e => { const v = parseInt(e.target.value); if (v > 0) setSt(s => ({ ...s, currencyShop: { ...s.currencyShop, star: { ...s.currencyShop.star, price: v } } })); }} style={{ width: "100%", padding: "10px 14px", background: "#07111f", border: "1px solid #4c1d95", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }} />
+                <input type="number" defaultValue={currencyShop.star.price} onBlur={e => { const v = parseInt(e.target.value); if (v > 0) updateCurrencyShop({ star: { price: v } }); }} style={{ width: "100%", padding: "10px 14px", background: "#07111f", border: "1px solid #4c1d95", borderRadius: 12, color: "#f1f5f9", fontFamily: "'Nunito',sans-serif", fontSize: 14, outline: "none" }} />
               </div>
             )}
             <div style={{ color: "#7c3aed", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Баланс: {st.sergei.stars || 0} ⭐️</div>

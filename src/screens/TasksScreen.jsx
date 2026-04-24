@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import TaskCard from "../components/TaskCard";
-import { deletePending, submitPending, sendToTelegram } from "../hooks";
+import { deletePending, submitPending, sendToTelegram, patchProfile, appendLog } from "../hooks";
 
 function formatDeadlineLeft(deadlineAt) {
   const ms = deadlineAt - Date.now();
@@ -108,26 +108,11 @@ export default function TasksScreen({ st, setSt, showToast }) {
 
   // ─── Все выполненные задания ─────────────────────────────────
   // Задания одноразовые: если хотя бы раз было одобрено — считаем done.
-  // Источник №1 — sq_completed_tasks.
+  // Источник истины — sq_completed_tasks (st.sergei.completedTasks).
   const completedEver = new Set((st.sergei.completedTasks || []).map(c => c.taskId));
-  // Источник №2 (fallback) — лог «earn». Если по какой-то причине
-  // запись в sq_completed_tasks не проросла (старые записи до миграции,
-  // гонка с pull и т.п.), а в логе есть "Задание «X» одобрено" — тоже
-  // считаем его выполненным. Матчим по заголовку задания — не идеально,
-  // но задания с одинаковым заголовком редкость, а регрессия (активные
-  // задания, которые явно когда-то были сделаны) хуже ложноположительного.
-  const earnedTitles = new Set(
-    (st.sergei.log || [])
-      .filter(l => l.type === "earn")
-      .map(l => {
-        const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
-        return m ? m[1] : null;
-      })
-      .filter(Boolean)
-  );
   const isDoneTask = useCallback(
-    (task) => completedEver.has(task.id) || earnedTitles.has(task.title),
-    [completedEver, earnedTitles]
+    (task) => completedEver.has(task.id),
+    [completedEver]
   );
 
   // Стабильная ссылка на st для чтения актуального состояния внутри
@@ -143,20 +128,6 @@ export default function TasksScreen({ st, setSt, showToast }) {
 
       const currentFailed = new Set(s.sergei.failedTasks || []);
       const currentCompleted = new Set((s.sergei.completedTasks || []).map(c => c.taskId));
-      // Fallback по логу — та же логика, что и в isDoneTask ниже.
-      // Если запись в sq_completed_tasks ещё не прошла realtime, но
-      // в логе уже есть «earn» — НЕ помечаем задание как failed,
-      // иначе оно одновременно станет «✅ Выполнено» (через лог)
-      // и «💀 Провалено» (по дедлайну).
-      const completedTitles = new Set(
-        (s.sergei.log || [])
-          .filter(l => l.type === "earn")
-          .map(l => {
-            const m = typeof l.text === "string" ? l.text.match(/«([^»]+)»/) : null;
-            return m ? m[1] : null;
-          })
-          .filter(Boolean)
-      );
       const currentPending = new Set((s.pendingTasks || []).filter(p => p.userId === "sergei").map(p => p.taskId));
 
       const knownIds = new Set(s.tasks.map(t => t.id));
@@ -172,7 +143,6 @@ export default function TasksScreen({ st, setSt, showToast }) {
         if (!task.deadlineAt) continue;
         if (currentFailed.has(task.id)) continue;
         if (currentCompleted.has(task.id)) continue;
-        if (completedTitles.has(task.title)) continue; // log-fallback
         if (currentPending.has(task.id)) continue;
 
         const msLeft = task.deadlineAt - now;
@@ -211,6 +181,7 @@ export default function TasksScreen({ st, setSt, showToast }) {
       // Чистый updater-callback (без сайд-эффектов внутри), поэтому
       // безопасен для StrictMode.
       if (newFailed.length > 0) {
+        const nextFailed = [...(s.sergei.failedTasks || []), ...newFailed];
         setSt(prev => ({
           ...prev,
           sergei: {
@@ -219,6 +190,11 @@ export default function TasksScreen({ st, setSt, showToast }) {
             log: [...newLogs, ...prev.sergei.log].slice(0, 500),
           },
         }));
+        // Явные вызовы Supabase — нельзя полагаться на debounced push,
+        // потому что он удалён. Каждое локальное изменение должно быть
+        // продублировано отдельной записью на сервере.
+        patchProfile({ failed_tasks: nextFailed });
+        for (const entry of newLogs) appendLog(entry);
       }
 
       // Telegram-отправку делаем ПОСЛЕ setSt, вне updater'а.
@@ -250,19 +226,21 @@ export default function TasksScreen({ st, setSt, showToast }) {
     if (pendingIds.includes(task.id)) return showToast("Уже отправлено на проверку", "info");
     if (isDoneTask(task)) return showToast("Задание уже выполнено", "info");
     const entry = { id: crypto.randomUUID(), taskId: task.id, userId: "sergei", submittedAt: Date.now() };
+    const logEntry = { id: crypto.randomUUID(), type: "submit", text: `📤 Отправил задание «${task.title}»`, ts: Date.now() };
     setSt(s => ({
       ...s,
       pendingTasks: [...(s.pendingTasks || []), entry],
       sergei: {
         ...s.sergei,
-        log: [{ id: crypto.randomUUID(), type: "submit", text: `📤 Отправил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       },
     }));
     showToast(`📤 «${task.title}» отправлено на проверку!`, "info");
     setSelectedTask(null);
-    // Пишем напрямую в Supabase, не ждём debounced push —
-    // иначе pull может перезаписать локальный стейт раньше, чем push успеет отправить запись
+    // Пишем напрямую в Supabase — debounced push удалён, каждое
+    // локальное изменение должно быть продублировано отдельной записью.
     await submitPending(entry);
+    appendLog(logEntry);
     // Telegram
     sendToTelegram(`📤 <b>${st.sergei.name}</b> отправил задание «${task.title}» на проверку`);
   };
@@ -270,16 +248,18 @@ export default function TasksScreen({ st, setSt, showToast }) {
   const cancelTask = async (task) => {
     const toRemove = (st.pendingTasks || []).filter(p => p.taskId === task.id && p.userId === "sergei");
     await Promise.all(toRemove.map(entry => deletePending(entry.id)));
+    const logEntry = { id: crypto.randomUUID(), type: "cancel", text: `↩️ Отменил задание «${task.title}»`, ts: Date.now() };
     setSt(s => ({
       ...s,
       pendingTasks: s.pendingTasks.filter(p => !(p.taskId === task.id && p.userId === "sergei")),
       sergei: {
         ...s.sergei,
-        log: [{ id: crypto.randomUUID(), type: "cancel", text: `↩️ Отменил задание «${task.title}»`, ts: Date.now() }, ...s.sergei.log].slice(0, 500),
+        log: [logEntry, ...s.sergei.log].slice(0, 500),
       },
     }));
     showToast(`↩️ «${task.title}» отменено`, "info");
     setSelectedTask(null);
+    appendLog(logEntry);
     sendToTelegram(`↩️ <b>${st.sergei.name}</b> отменил задание «${task.title}»`);
   };
 
