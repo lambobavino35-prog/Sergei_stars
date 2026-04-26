@@ -605,34 +605,39 @@ export default function AdminScreen({ st, setSt, showToast }) {
                 completedById.set(ct.taskId, arr);
               }
               const isDoneTask = (t) => completedById.has(t.id);
+              const failedIds = new Set(st.sergei.failedTasks || []);
+              const isFailedTask = (t) => failedIds.has(t.id) && !isDoneTask(t);
 
-              const notDone = st.tasks.filter(t => !isDoneTask(t));
+              const notDone = st.tasks.filter(t => !isDoneTask(t) && !isFailedTask(t));
+              const failed = st.tasks.filter(t => isFailedTask(t));
               const done = st.tasks.filter(t => isDoneTask(t));
 
               const renderTask = t => {
                 const completions = completedById.get(t.id) || [];
                 const isDone = isDoneTask(t);
+                const isFailed = isFailedTask(t);
                 // Последняя дата — максимум из completedTasks.
                 let lastTs = 0;
                 for (const c of completions) {
                   if ((c.date || 0) > lastTs) lastTs = c.date || 0;
                 }
                 return (
-                  <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: isDone ? "linear-gradient(90deg,#03180a00,#03180a66)" : "none" }}>
+                  <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #0f172a", background: isFailed ? "linear-gradient(90deg,#2d0a0a00,#2d0a0a66)" : isDone ? "linear-gradient(90deg,#03180a00,#03180a66)" : "none" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: 18, flexShrink: 0 }}>{t.emoji}</span>
+                      <span style={{ fontSize: 18, flexShrink: 0, opacity: isFailed ? 0.6 : 1, filter: isFailed ? "grayscale(0.4)" : "none" }}>{t.emoji}</span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: isDone ? "#4ade80" : "#f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: isFailed ? "#f87171" : isDone ? "#4ade80" : "#f1f5f9", textDecoration: isFailed ? "line-through" : "none", display: "flex", alignItems: "center", gap: 6 }}>
                           {t.title}
                           {isDone && <span style={{ fontSize: 10, background: "#052e16", color: "#4ade80", border: "1px solid #134e2a", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>✅ Выполнено</span>}
+                          {isFailed && <span style={{ fontSize: 10, background: "#2d0a0a", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: 6, padding: "1px 6px", fontWeight: 800 }}>💀 Провалено</span>}
                         </div>
                         {t.description && <div style={{ fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>}
-                        {t.deadlineAt && <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 700 }}>⏰ Дедлайн: {new Date(t.deadlineAt).toLocaleString("ru-RU")}</div>}
+                        {t.deadlineAt && <div style={{ fontSize: 10, color: isFailed ? "#f87171" : "#fbbf24", fontWeight: 700 }}>{isFailed ? "💀" : "⏰"} Дедлайн: {new Date(t.deadlineAt).toLocaleString("ru-RU")}{isFailed ? " — истёк" : ""}</div>}
                         {isDone && lastTs > 0 && <div style={{ fontSize: 10, color: "#166534", fontWeight: 700 }}>Последнее: {new Date(lastTs).toLocaleDateString("ru-RU")}</div>}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                      <span style={{ color: "#fbbf24", fontWeight: 900 }}>💰 {t.reward}</span>
+                      <span style={{ color: isFailed ? "#7f1d1d" : "#fbbf24", fontWeight: 900, textDecoration: isFailed ? "line-through" : "none" }}>💰 {t.reward}</span>
                       <button onClick={() => deleteTask(t.id)} style={{ padding: "4px 10px", background: "#2d0a0a", color: "#f87171", border: "none", borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: "pointer" }}>✕</button>
                     </div>
                   </div>
@@ -641,6 +646,16 @@ export default function AdminScreen({ st, setSt, showToast }) {
               return (
                 <>
                   {notDone.map(renderTask)}
+                  {failed.length > 0 && (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "14px 0 6px" }}>
+                        <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg,#7f1d1d,#2d0a0a)" }} />
+                        <span style={{ fontSize: 10, fontWeight: 800, color: "#f87171", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>💀 Провалено ({failed.length})</span>
+                        <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg,#2d0a0a,#7f1d1d)" }} />
+                      </div>
+                      {failed.map(renderTask)}
+                    </>
+                  )}
                   {done.length > 0 && (
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "14px 0 6px" }}>
